@@ -51,6 +51,7 @@ declare global {
     cancelActiveJob: () => Promise<void>
     restartLocalService: () => Promise<LocalServiceStatus>
     getLocalServiceStatus: () => Promise<LocalServiceStatus>
+    getJobs: () => Promise<TranscriptionJob[]>
     exportTranscript: (jobId: string, format: ExportFormat) => Promise<void>
     onJobsUpdated: (callback: (jobs: TranscriptionJob[]) => void) => () => void
     onServiceUpdated: (callback: (status: LocalServiceStatus) => void) => () => void

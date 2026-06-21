@@ -54,6 +54,7 @@ const api = {
     cancelActiveJob: () => ipcRenderer.invoke('asr:cancel-active-job'),
     restartLocalService: () => ipcRenderer.invoke('asr:restart-local-service'),
     getLocalServiceStatus: () => ipcRenderer.invoke('asr:get-local-service-status'),
+    getJobs: () => ipcRenderer.invoke('asr:get-jobs') as Promise<TranscriptionJob[]>,
     exportTranscript: (jobId: string, format: ExportFormat) =>
       ipcRenderer.invoke('asr:export-transcript', jobId, format),
     onJobsUpdated: (callback: (jobs: TranscriptionJob[]) => void): (() => void) => {

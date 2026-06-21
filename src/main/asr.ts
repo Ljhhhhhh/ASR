@@ -69,8 +69,14 @@ const PYTHON_BIN = process.env['ASR_FUNASR_PYTHON'] || resolve(APP_ROOT, '.venv/
 const SERVICE_SCRIPT = resolve(APP_ROOT, 'scripts/funasr_service.py')
 const SERVICE_PID_PATH = join(process.cwd(), '.asr', 'funasr-service.pid')
 
+const JOB_HISTORY_VERSION = 1
+const MAX_JOB_HISTORY = 100
+const JOB_HISTORY_PERSIST_DELAY_MS = 300
+
 const jobs = new Map<string, TranscriptionJob>()
 const transcriptCache = new Map<string, CachedTranscript>()
+let jobHistoryLoaded = false
+let jobHistoryPersistTimer: NodeJS.Timeout | undefined
 let activeProcess: ChildProcessWithoutNullStreams | undefined
 let queueRunning = false
 let cancelRequested = false
@@ -81,6 +87,7 @@ let serviceMessage = ''
 export function registerAsrHandlers(mainWindow: BrowserWindow): void {
   const emitJobs = (): void => {
     mainWindow.webContents.send('asr:jobs-updated', Array.from(jobs.values()))
+    schedulePersistJobHistory()
   }
 
   const emitService = (): void => {
@@ -173,6 +180,12 @@ export function registerAsrHandlers(mainWindow: BrowserWindow): void {
     return getServiceStatus()
   })
 
+  ipcMain.handle('asr:get-jobs', async () => {
+    await loadTranscriptCache()
+    await loadJobHistory()
+    return Array.from(jobs.values())
+  })
+
   ipcMain.handle('asr:export-transcript', async (_event, jobId: string, format: ExportFormat) => {
     const job = jobs.get(jobId)
     if (!job || job.status !== 'completed') throw new Error('No completed transcript is available')
@@ -191,7 +204,23 @@ export function registerAsrHandlers(mainWindow: BrowserWindow): void {
     await writeFile(result.filePath, content, 'utf8')
   })
 
+  mainWindow.webContents.on('did-finish-load', () => {
+    emitJobs()
+  })
+
+  void bootstrapWorkbench(emitJobs, emitService)
   void startLocalServiceOnLaunch(emitService)
+}
+
+async function bootstrapWorkbench(emitJobs: () => void, emitService: () => void): Promise<void> {
+  await loadTranscriptCache()
+  await loadJobHistory()
+  emitJobs()
+
+  const hasQueuedJobs = Array.from(jobs.values()).some((job) => job.status === 'queued')
+  if (hasQueuedJobs && !queueRunning) {
+    void runQueue({ provider: 'local-funasr' }, emitJobs, emitService)
+  }
 }
 
 function getServiceStatus(): LocalServiceStatus {
@@ -426,12 +455,176 @@ function getCacheKey(filePath: string, fileName: string): string {
   return `${resolve(filePath)}::${fileName}`
 }
 
+function getAsrDataDir(): string {
+  return join(process.cwd(), '.asr')
+}
+
 function getTranscriptCachePath(): string {
-  return join(process.cwd(), '.asr', 'transcript-cache.json')
+  return join(getAsrDataDir(), 'transcript-cache.json')
+}
+
+function getJobHistoryPath(): string {
+  return join(getAsrDataDir(), 'job-history.json')
 }
 
 function getProjectTranscriptsPath(): string {
-  return join(process.cwd(), '.asr', 'transcripts')
+  return join(getAsrDataDir(), 'transcripts')
+}
+
+function schedulePersistJobHistory(): void {
+  if (!jobHistoryLoaded) return
+  if (jobHistoryPersistTimer) clearTimeout(jobHistoryPersistTimer)
+  jobHistoryPersistTimer = setTimeout(() => {
+    jobHistoryPersistTimer = undefined
+    void persistJobHistory()
+  }, JOB_HISTORY_PERSIST_DELAY_MS)
+}
+
+function isValidJobStatus(status: string): status is JobStatus {
+  return (
+    status === 'queued' ||
+    status === 'running' ||
+    status === 'completed' ||
+    status === 'failed' ||
+    status === 'cancelled'
+  )
+}
+
+function normalizeRestoredJob(job: TranscriptionJob): TranscriptionJob {
+  const restored: TranscriptionJob = {
+    ...job,
+    logs: Array.isArray(job.logs) ? job.logs.slice(-20) : [],
+    segments: Array.isArray(job.segments) ? job.segments : [],
+    progress: Number.isFinite(job.progress) ? job.progress : 0,
+    updatedAt: job.updatedAt || job.createdAt || new Date().toISOString(),
+    createdAt: job.createdAt || new Date().toISOString()
+  }
+
+  if (restored.status === 'running') {
+    restored.status = 'failed'
+    restored.progress = 0
+    restored.error = restored.error || '应用重启，任务已中断'
+    addJobLog(restored, '应用重启，任务已中断')
+  }
+
+  return restored
+}
+
+async function hydrateCompletedJobSegments(job: TranscriptionJob): Promise<void> {
+  if (job.status !== 'completed' || job.segments.length > 0) return
+  const cached = await findCachedTranscript(job.filePath)
+  if (!cached) return
+  job.segments = cached.segments
+  job.durationMs = cached.durationMs ?? job.durationMs
+  job.source = job.source || 'cache'
+}
+
+function pruneJobHistory(): void {
+  if (jobs.size <= MAX_JOB_HISTORY) return
+
+  const ranked = Array.from(jobs.values()).sort(
+    (left, right) => Date.parse(right.updatedAt) - Date.parse(left.updatedAt)
+  )
+  const keepIds = new Set<string>()
+
+  for (const job of ranked) {
+    if (job.status === 'queued') keepIds.add(job.id)
+  }
+
+  for (const job of ranked) {
+    if (keepIds.size >= MAX_JOB_HISTORY) break
+    keepIds.add(job.id)
+  }
+
+  for (const jobId of jobs.keys()) {
+    if (!keepIds.has(jobId)) jobs.delete(jobId)
+  }
+}
+
+async function loadJobHistory(): Promise<void> {
+  if (jobHistoryLoaded) return
+
+  try {
+    const raw = await readFile(getJobHistoryPath(), 'utf8')
+    const payload = JSON.parse(raw) as { version?: number; jobs?: unknown[] }
+    if (!Array.isArray(payload.jobs)) return
+
+    for (const entry of payload.jobs) {
+      if (!entry || typeof entry !== 'object') continue
+      const candidate = entry as TranscriptionJob
+      if (
+        typeof candidate.id !== 'string' ||
+        typeof candidate.filePath !== 'string' ||
+        typeof candidate.fileName !== 'string' ||
+        !isValidJobStatus(candidate.status)
+      ) {
+        continue
+      }
+
+      const restored = normalizeRestoredJob(candidate)
+      await hydrateCompletedJobSegments(restored)
+      jobs.set(restored.id, restored)
+    }
+
+    pruneJobHistory()
+  } catch {
+    // Missing or unreadable history should not block startup.
+  }
+
+  if (jobs.size === 0) {
+    await seedJobHistoryFromTranscriptCache()
+  }
+
+  jobHistoryLoaded = true
+}
+
+async function seedJobHistoryFromTranscriptCache(): Promise<void> {
+  await loadTranscriptCache()
+  if (transcriptCache.size === 0) return
+
+  const seededAt = new Date().toISOString()
+  for (const cached of transcriptCache.values()) {
+    try {
+      await stat(cached.filePath)
+    } catch {
+      continue
+    }
+
+    const id = randomUUID()
+    const restoredAt = cached.updatedAt || seededAt
+    jobs.set(id, {
+      id,
+      filePath: cached.filePath,
+      fileName: cached.fileName,
+      status: 'completed',
+      progress: 100,
+      stage: 'normalizing',
+      durationMs: cached.durationMs,
+      segments: cached.segments,
+      logs: [{ time: restoredAt, message: '从历史文字稿缓存恢复' }],
+      createdAt: restoredAt,
+      updatedAt: restoredAt,
+      completedAt: restoredAt,
+      source: 'cache'
+    })
+  }
+
+  pruneJobHistory()
+}
+
+async function persistJobHistory(): Promise<void> {
+  if (!jobHistoryLoaded) return
+
+  pruneJobHistory()
+  const historyPath = getJobHistoryPath()
+  await mkdir(dirname(historyPath), { recursive: true })
+  const payload = {
+    version: JOB_HISTORY_VERSION,
+    jobs: Array.from(jobs.values()).sort(
+      (left, right) => Date.parse(left.createdAt) - Date.parse(right.createdAt)
+    )
+  }
+  await writeFile(historyPath, JSON.stringify(payload, null, 2), 'utf8')
 }
 
 async function probeDuration(filePath: string): Promise<number> {

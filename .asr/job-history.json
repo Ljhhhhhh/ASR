@@ -1,11 +1,13 @@
 {
-  "transcripts": [
+  "version": 1,
+  "jobs": [
     {
-      "cacheKey": "/Users/guanmo/Documents/Power BI 课程配套资料/业财分析之道/1_2-业财分析之道 0622 - 02.mp4::1_2-业财分析之道 0622 - 02.mp4",
+      "id": "30b21cd6-d302-422c-b9d9-4b2f0151bb58",
       "filePath": "/Users/guanmo/Documents/Power BI 课程配套资料/业财分析之道/1_2-业财分析之道 0622 - 02.mp4",
       "fileName": "1_2-业财分析之道 0622 - 02.mp4",
-      "size": 28701300,
-      "mtimeMs": 1736466928000,
+      "status": "completed",
+      "progress": 100,
+      "stage": "normalizing",
       "durationMs": 883806,
       "segments": [
         {
@@ -849,14 +851,24 @@
           "text": "所以这是一个，这是一个完整的这个这个闭环。"
         }
       ],
-      "updatedAt": "2026-06-21T00:46:02.173Z"
+      "logs": [
+        {
+          "time": "2026-06-21T00:46:02.173Z",
+          "message": "从历史文字稿缓存恢复"
+        }
+      ],
+      "createdAt": "2026-06-21T00:46:02.173Z",
+      "updatedAt": "2026-06-21T00:46:02.173Z",
+      "completedAt": "2026-06-21T00:46:02.173Z",
+      "source": "cache"
     },
     {
-      "cacheKey": "/Users/guanmo/Documents/Power BI 课程配套资料/业财分析之道/1_3-业财分析之道 0622 - 03.mp4::1_3-业财分析之道 0622 - 03.mp4",
+      "id": "e8a1a233-fba7-465b-8c4c-218631f4fcc2",
       "filePath": "/Users/guanmo/Documents/Power BI 课程配套资料/业财分析之道/1_3-业财分析之道 0622 - 03.mp4",
       "fileName": "1_3-业财分析之道 0622 - 03.mp4",
-      "size": 83742611,
-      "mtimeMs": 1736466936000,
+      "status": "completed",
+      "progress": 100,
+      "stage": "normalizing",
       "durationMs": 2196608,
       "segments": [
         {
@@ -2900,7 +2912,16 @@
           "text": "出门，然后往这边拐，就过去可以看到。"
         }
       ],
-      "updatedAt": "2026-06-21T00:55:01.475Z"
+      "logs": [
+        {
+          "time": "2026-06-21T00:55:01.475Z",
+          "message": "从历史文字稿缓存恢复"
+        }
+      ],
+      "createdAt": "2026-06-21T00:55:01.475Z",
+      "updatedAt": "2026-06-21T00:55:01.475Z",
+      "completedAt": "2026-06-21T00:55:01.475Z",
+      "source": "cache"
     }
   ]
 }

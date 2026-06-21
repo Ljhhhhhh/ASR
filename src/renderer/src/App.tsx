@@ -1,4 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
+import { TranscriptReader } from './components/TranscriptReader'
+import { TranscriptSegmentList } from './components/TranscriptSegmentList'
+import { formatClockTime, formatDuration } from './lib/transcript'
 
 const stageLabels: Record<NonNullable<TranscriptionJob['stage']>, string> = {
   probing: '读取媒体',
@@ -41,17 +44,23 @@ function App(): React.JSX.Element {
     url: '',
     message: '尚未检查本地服务'
   })
+  const [readerOpen, setReaderOpen] = useState(false)
+  const [readerInitialIndex, setReaderInitialIndex] = useState(0)
 
   useEffect(() => {
-    const offJobs = window.api.asr.onJobsUpdated((nextJobs) => {
+    const applyJobs = (nextJobs: TranscriptionJob[]): void => {
       setJobs(nextJobs)
       setSelectedJobId((current) => {
         const running = nextJobs.find((job) => job.status === 'running')
         if (running) return running.id
-        return current || nextJobs[0]?.id || ''
+        if (current && nextJobs.some((job) => job.id === current)) return current
+        return nextJobs[0]?.id || ''
       })
-    })
+    }
+
+    const offJobs = window.api.asr.onJobsUpdated(applyJobs)
     const offService = window.api.asr.onServiceUpdated(setServiceStatus)
+    void window.api.asr.getJobs().then(applyJobs)
     void window.api.asr.getLocalServiceStatus().then(setServiceStatus)
 
     return () => {
@@ -97,6 +106,12 @@ function App(): React.JSX.Element {
     detailJob.progress < 100
       ? Math.max(0, (detailJobElapsedMs / detailJob.progress) * (100 - detailJob.progress))
       : 0
+
+  const openReader = (segmentIndex = 0): void => {
+    if (!selectedJob || selectedJob.segments.length === 0) return
+    setReaderInitialIndex(segmentIndex)
+    setReaderOpen(true)
+  }
 
   const selectFiles = async (): Promise<void> => {
     const filePaths = await window.api.asr.selectMediaFiles()
@@ -271,6 +286,14 @@ function App(): React.JSX.Element {
               <button
                 type="button"
                 className="ghost-button"
+                disabled={!selectedJob || selectedJob.segments.length === 0}
+                onClick={() => openReader(0)}
+              >
+                展开阅读
+              </button>
+              <button
+                type="button"
+                className="ghost-button"
                 disabled={selectedJob?.status !== 'completed'}
                 onClick={() =>
                   selectedJob && window.api.asr.exportTranscript(selectedJob.id, 'txt')
@@ -343,42 +366,25 @@ function App(): React.JSX.Element {
               <span>{selectedJob.error || '转写完成后会在这里显示带时间戳的分句。'}</span>
             </div>
           ) : (
-            <div className="transcript-list">
-              {selectedJob.segments.map((segment, index) => (
-                <article className="segment-row" key={`${segment.startMs}-${index}`}>
-                  <time>
-                    {formatTime(segment.startMs)} - {formatTime(segment.endMs)}
-                  </time>
-                  <p>{segment.text}</p>
-                </article>
-              ))}
-            </div>
+            <TranscriptSegmentList
+              segments={selectedJob.segments}
+              variant="compact"
+              onSegmentDoubleClick={(index) => openReader(index)}
+            />
           )}
         </section>
       </section>
+
+      {readerOpen && selectedJob && selectedJob.segments.length > 0 ? (
+        <TranscriptReader
+          job={selectedJob}
+          initialSegmentIndex={readerInitialIndex}
+          onClose={() => setReaderOpen(false)}
+          onExport={(format) => void window.api.asr.exportTranscript(selectedJob.id, format)}
+        />
+      ) : null}
     </main>
   )
-}
-
-function formatDuration(ms: number): string {
-  if (!Number.isFinite(ms) || ms <= 0) return '0 秒'
-  const totalSeconds = Math.round(ms / 1000)
-  const minutes = Math.floor(totalSeconds / 60)
-  const seconds = totalSeconds % 60
-  return minutes > 0 ? `${minutes} 分 ${seconds} 秒` : `${seconds} 秒`
-}
-
-function formatClockTime(value: string): string {
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return '--:--:--'
-  return date.toLocaleTimeString('zh-CN', { hour12: false })
-}
-
-function formatTime(ms: number): string {
-  const totalSeconds = Math.floor(ms / 1000)
-  const minutes = Math.floor(totalSeconds / 60)
-  const seconds = totalSeconds % 60
-  return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`
 }
 
 export default App
