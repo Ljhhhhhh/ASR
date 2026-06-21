@@ -1,0 +1,6 @@
+funasr
+modelscope
+numpy
+soundfile
+torch
+torchaudio
