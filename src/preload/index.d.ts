@@ -4,6 +4,12 @@ declare global {
   type AsrProvider = 'local-funasr' | 'third-party'
   type ExportFormat = 'txt' | 'srt'
 
+  interface BatchExportResult {
+    exported: number
+    skipped: number
+    canceled?: boolean
+  }
+
   interface AsrConfig {
     provider: AsrProvider
     thirdPartyBaseUrl?: string
@@ -108,7 +114,7 @@ declare global {
 
   type CourseType = 'training' | 'interview' | 'lecture'
 
-  type SummaryStage = 'extract' | 'train' | 'migrate' | 'repair'
+  type SummaryStage = 'extract' | 'migrate' | 'repair'
 
   interface SummaryProgressEvent {
     jobId: string
@@ -137,6 +143,7 @@ declare global {
     getLocalServiceStatus: () => Promise<LocalServiceStatus>
     getJobs: () => Promise<TranscriptionJob[]>
     exportTranscript: (jobId: string, format: ExportFormat) => Promise<void>
+    exportTranscriptsBatch: (jobIds: string[], format?: ExportFormat) => Promise<BatchExportResult>
     onJobsUpdated: (callback: (jobs: TranscriptionJob[]) => void) => () => void
     onServiceUpdated: (callback: (status: LocalServiceStatus) => void) => () => void
   }
@@ -150,6 +157,7 @@ declare global {
     generateSummary: (jobId: string, courseType?: CourseType) => Promise<KnowledgeSummaryRecord>
     cancelSummary: (jobId: string) => Promise<boolean>
     exportSummary: (jobId: string) => Promise<void>
+    exportSummariesBatch: (jobIds: string[]) => Promise<BatchExportResult>
     saveSummaryImageFromClipboard: (jobId: string) => Promise<void>
     onSummaryChunk: (callback: (event: SummaryProgressEvent) => void) => () => void
     onSummaryDone: (callback: (event: SummaryDoneEvent) => void) => () => void

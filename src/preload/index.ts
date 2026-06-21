@@ -4,6 +4,12 @@ import { electronAPI } from '@electron-toolkit/preload'
 type AsrProvider = 'local-funasr' | 'third-party'
 type ExportFormat = 'txt' | 'srt'
 
+interface BatchExportResult {
+  exported: number
+  skipped: number
+  canceled?: boolean
+}
+
 interface AsrConfig {
   provider: AsrProvider
   thirdPartyBaseUrl?: string
@@ -108,7 +114,7 @@ interface KnowledgeSummaryResult {
 
 type CourseType = 'training' | 'interview' | 'lecture'
 
-type SummaryStage = 'extract' | 'train' | 'migrate' | 'repair'
+type SummaryStage = 'extract' | 'migrate' | 'repair'
 
 interface SummaryProgressEvent {
   jobId: string
@@ -141,6 +147,8 @@ const api = {
     getJobs: () => ipcRenderer.invoke('asr:get-jobs') as Promise<TranscriptionJob[]>,
     exportTranscript: (jobId: string, format: ExportFormat) =>
       ipcRenderer.invoke('asr:export-transcript', jobId, format),
+    exportTranscriptsBatch: (jobIds: string[], format: ExportFormat = 'txt') =>
+      ipcRenderer.invoke('asr:export-transcripts-batch', jobIds, format) as Promise<BatchExportResult>,
     onJobsUpdated: (callback: (jobs: TranscriptionJob[]) => void): (() => void) => {
       const listener = (_event: Electron.IpcRendererEvent, jobs: TranscriptionJob[]): void =>
         callback(jobs)
@@ -170,6 +178,8 @@ const api = {
       ipcRenderer.invoke('llm:cancel-summary', jobId),
     exportSummary: (jobId: string): Promise<void> =>
       ipcRenderer.invoke('llm:export-summary', jobId),
+    exportSummariesBatch: (jobIds: string[]): Promise<BatchExportResult> =>
+      ipcRenderer.invoke('llm:export-summaries-batch', jobIds),
     saveSummaryImageFromClipboard: (jobId: string): Promise<void> =>
       ipcRenderer.invoke('llm:save-summary-image-from-clipboard', jobId),
     onSummaryChunk: (callback: (event: SummaryProgressEvent) => void): (() => void) => {

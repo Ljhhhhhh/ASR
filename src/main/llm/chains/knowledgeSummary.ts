@@ -3,13 +3,12 @@ import { segmentsToPlainText, type TranscriptSegment } from '../transcript'
 import { normalizeCourseType, type CourseType } from '../prompts/courseTemplates'
 import {
   buildKnowledgeSummaryMarkdown,
-  runBusinessMigration,
-  runCourseExtraction,
-  runLearningTraining
+  runCourseFinalProduct,
+  runCourseExtraction
 } from './courseStages'
 import { repairMermaidInMarkdown } from './mermaidRepair'
 
-export type SummaryStage = 'extract' | 'train' | 'migrate' | 'repair'
+export type SummaryStage = 'extract' | 'migrate' | 'repair'
 
 export interface SummaryProgressEvent {
   jobId: string
@@ -62,13 +61,13 @@ export async function runKnowledgeSummaryChain(
     jobId,
     stage: 'extract',
     progress: 0,
-    message: '正在清洗课程并提炼核心…'
+    message: '正在生成课程知识总结…'
   })
   emitMarkdown(
     onProgress,
     jobId,
     'extract',
-    `# 知识总结：${fileName}\n\n## 阶段一：课程清洗与核心提炼\n\n`
+    `# 知识总结：${fileName}\n\n## 阶段一：课程知识总结\n\n`
   )
 
   const extraction = await runCourseExtraction(rawTranscript, courseType, {
@@ -80,28 +79,7 @@ export async function runKnowledgeSummaryChain(
     jobId,
     stage: 'extract',
     progress: 100,
-    message: '课程清洗与核心提炼完成'
-  })
-
-  throwIfAborted(signal)
-  onProgress({
-    jobId,
-    stage: 'train',
-    progress: 0,
-    message: '正在生成学习训练…'
-  })
-  emitMarkdown(onProgress, jobId, 'train', '\n\n## 阶段二：学习训练设计\n\n')
-
-  const training = await runLearningTraining(extraction, courseType, {
-    signal,
-    onDelta: (delta) => emitMarkdown(onProgress, jobId, 'train', delta)
-  })
-
-  onProgress({
-    jobId,
-    stage: 'train',
-    progress: 100,
-    message: '学习训练生成完成'
+    message: '课程知识总结生成完成'
   })
 
   throwIfAborted(signal)
@@ -109,11 +87,11 @@ export async function runKnowledgeSummaryChain(
     jobId,
     stage: 'migrate',
     progress: 0,
-    message: '正在生成业务迁移成品…'
+    message: '正在生成课程知识成品…'
   })
-  emitMarkdown(onProgress, jobId, 'migrate', '\n\n## 阶段三：业务迁移与最终成品\n\n')
+  emitMarkdown(onProgress, jobId, 'migrate', '\n\n## 阶段二：课程知识成品生成\n\n')
 
-  const migration = await runBusinessMigration(extraction, training, courseType, {
+  const finalProduct = await runCourseFinalProduct(extraction, courseType, {
     signal,
     onDelta: (delta) => emitMarkdown(onProgress, jobId, 'migrate', delta)
   })
@@ -122,10 +100,10 @@ export async function runKnowledgeSummaryChain(
     jobId,
     stage: 'migrate',
     progress: 100,
-    message: '业务迁移成品生成完成'
+    message: '课程知识成品生成完成'
   })
 
-  let markdown = buildKnowledgeSummaryMarkdown(fileName, extraction, training, migration)
+  let markdown = buildKnowledgeSummaryMarkdown(fileName, extraction, finalProduct)
 
   throwIfAborted(signal)
   onProgress({

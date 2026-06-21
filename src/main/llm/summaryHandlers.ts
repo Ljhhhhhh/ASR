@@ -1,7 +1,13 @@
 import { BrowserWindow, clipboard, dialog, ipcMain } from 'electron'
 import { basename, extname, join } from 'path'
 import { writeFile } from 'fs/promises'
-import { getJobById, getTranscriptFingerprint } from '../asr'
+import {
+  getAllJobs,
+  getJobById,
+  getTranscriptFingerprint,
+  resolveUniqueFileName,
+  type BatchExportResult
+} from '../asr'
 import { loadLlmConfig } from '../llm'
 import { runKnowledgeSummaryChain } from './chains/knowledgeSummary'
 import { normalizeCourseType, type CourseType } from './prompts/courseTemplates'
@@ -105,6 +111,65 @@ export function registerSummaryHandlers(mainWindow: BrowserWindow): void {
     activeSummaryJobs.delete(jobId)
     return true
   })
+
+  ipcMain.handle(
+    'llm:export-summaries-batch',
+    async (_event, jobIds: string[]): Promise<BatchExportResult> => {
+      if (!Array.isArray(jobIds) || jobIds.length === 0) {
+        throw new Error('请先勾选要导出的任务')
+      }
+
+      const selectedIds = new Set(jobIds)
+      const selectedJobs = getAllJobs().filter((job) => selectedIds.has(job.id))
+      if (selectedJobs.length === 0) {
+        throw new Error('所选任务不存在或已被删除')
+      }
+
+      const records = (
+        await Promise.all(
+          selectedJobs.map(async (job) => ({
+            job,
+            record: await loadKnowledgeSummary(job.id)
+          }))
+        )
+      ).filter(
+        (
+          entry
+        ): entry is { job: (typeof selectedJobs)[number]; record: KnowledgeSummaryRecord } =>
+          Boolean(entry.record)
+      )
+
+      if (records.length === 0) {
+        throw new Error('所选任务中没有可导出的知识总结')
+      }
+
+    const result = await dialog.showOpenDialog(mainWindow, {
+      title: '选择导出目录',
+      properties: ['openDirectory', 'createDirectory']
+    })
+    if (result.canceled || result.filePaths.length === 0) {
+      return { exported: 0, skipped: 0, canceled: true }
+    }
+
+    const directory = result.filePaths[0]
+    const usedNames = new Set<string>()
+    let exported = 0
+    let skipped = 0
+
+    for (const { record } of records) {
+      const baseName = basename(record.fileName, extname(record.fileName))
+      const fileName = resolveUniqueFileName(usedNames, `${baseName}-知识总结.md`)
+      try {
+        await writeFile(join(directory, fileName), record.markdown, 'utf8')
+        exported += 1
+      } catch {
+        skipped += 1
+      }
+    }
+
+    return { exported, skipped }
+    }
+  )
 
   ipcMain.handle('llm:export-summary', async (_event, jobId: string) => {
     const record = await loadKnowledgeSummary(jobId)

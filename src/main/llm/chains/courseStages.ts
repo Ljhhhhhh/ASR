@@ -3,9 +3,8 @@ import { StringOutputParser } from '@langchain/core/output_parsers'
 import { RunnableSequence } from '@langchain/core/runnables'
 import { createChatModel } from '../client'
 import {
-  getBusinessMigrationSystemPrompt,
+  getCourseFinalProductSystemPrompt,
   getCourseExtractionSystemPrompt,
-  getLearningTrainingSystemPrompt,
   type CourseType
 } from '../prompts/courseTemplates'
 
@@ -58,23 +57,18 @@ async function runStreamingStage(
 export function buildKnowledgeSummaryMarkdown(
   fileName: string,
   extraction: string,
-  training: string,
-  migration: string
+  finalProduct: string
 ): string {
   return [
     `# 知识总结：${fileName}`,
     '',
-    '## 阶段一：课程清洗与核心提炼',
+    '## 阶段一：课程知识总结',
     '',
     extraction.trim(),
     '',
-    '## 阶段二：学习训练设计',
+    '## 阶段二：课程知识成品生成',
     '',
-    training.trim(),
-    '',
-    '## 阶段三：业务迁移与最终成品',
-    '',
-    migration.trim()
+    finalProduct.trim()
   ].join('\n')
 }
 
@@ -90,44 +84,25 @@ export async function runCourseExtraction(
     {
       temperature: 0.1,
       maxTokens: 8192,
-      emptyMessage: '课程清洗与核心提炼阶段返回了空内容'
+      emptyMessage: '课程知识总结阶段返回了空内容'
     },
     callbacks
   )
 }
 
-export async function runLearningTraining(
+export async function runCourseFinalProduct(
   extractedContent: string,
   courseType: CourseType,
   callbacks: StreamCallbacks
 ): Promise<string> {
   return runStreamingStage(
-    getLearningTrainingSystemPrompt(courseType),
+    getCourseFinalProductSystemPrompt(courseType),
     '已经清洗和提炼过的课程内容：\n{extractedContent}',
     { extractedContent },
     {
-      temperature: 0.2,
-      maxTokens: 8192,
-      emptyMessage: '学习训练阶段返回了空内容'
-    },
-    callbacks
-  )
-}
-
-export async function runBusinessMigration(
-  extractedContent: string,
-  trainingContent: string,
-  courseType: CourseType,
-  callbacks: StreamCallbacks
-): Promise<string> {
-  return runStreamingStage(
-    getBusinessMigrationSystemPrompt(courseType),
-    '课程清洗与核心提炼结果：\n{extractedContent}\n\n学习训练结果：\n{trainingContent}',
-    { extractedContent, trainingContent },
-    {
       temperature: 0.25,
-      maxTokens: 8192,
-      emptyMessage: '业务迁移阶段返回了空内容'
+      maxTokens: 5000,
+      emptyMessage: '课程知识成品阶段返回了空内容'
     },
     callbacks
   )

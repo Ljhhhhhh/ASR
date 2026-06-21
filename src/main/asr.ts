@@ -88,6 +88,16 @@ export function getJobById(jobId: string): TranscriptionJob | undefined {
   return jobs.get(jobId)
 }
 
+export function getAllJobs(): TranscriptionJob[] {
+  return Array.from(jobs.values())
+}
+
+export interface BatchExportResult {
+  exported: number
+  skipped: number
+  canceled?: boolean
+}
+
 export async function getTranscriptFingerprint(
   job: TranscriptionJob
 ): Promise<TranscriptFingerprint> {
@@ -252,6 +262,51 @@ export function registerAsrHandlers(mainWindow: BrowserWindow): void {
     const content = format === 'txt' ? formatTxt(job.segments) : formatSrt(job.segments)
     await writeFile(result.filePath, content, 'utf8')
   })
+
+  ipcMain.handle(
+    'asr:export-transcripts-batch',
+    async (_event, jobIds: string[], format: ExportFormat = 'txt'): Promise<BatchExportResult> => {
+      if (!Array.isArray(jobIds) || jobIds.length === 0) {
+        throw new Error('请先勾选要导出的任务')
+      }
+
+      const selectedIds = new Set(jobIds)
+      const exportableJobs = Array.from(jobs.values()).filter(
+        (job) =>
+          selectedIds.has(job.id) && job.status === 'completed' && job.segments.length > 0
+      )
+      if (exportableJobs.length === 0) {
+        throw new Error('所选任务中没有可导出的已完成文字稿')
+      }
+
+      const result = await dialog.showOpenDialog(mainWindow, {
+        title: '选择导出目录',
+        properties: ['openDirectory', 'createDirectory']
+      })
+      if (result.canceled || result.filePaths.length === 0) {
+        return { exported: 0, skipped: 0, canceled: true }
+      }
+
+      const directory = result.filePaths[0]
+      const usedNames = new Set<string>()
+      let exported = 0
+      let skipped = 0
+
+      for (const job of exportableJobs) {
+        const baseName = basename(job.fileName, extname(job.fileName))
+        const fileName = resolveUniqueFileName(usedNames, `${baseName}.${format}`)
+        const content = format === 'txt' ? formatTxt(job.segments) : formatSrt(job.segments)
+        try {
+          await writeFile(join(directory, fileName), content, 'utf8')
+          exported += 1
+        } catch {
+          skipped += 1
+        }
+      }
+
+      return { exported, skipped }
+    }
+  )
 
   mainWindow.webContents.on('did-finish-load', () => {
     emitJobs()
@@ -1114,6 +1169,24 @@ function toNumber(value: unknown): number {
 
 function toSecondsAsMs(value: unknown): number {
   return Math.round(toNumber(value) * 1000)
+}
+
+export function resolveUniqueFileName(usedNames: Set<string>, fileName: string): string {
+  if (!usedNames.has(fileName)) {
+    usedNames.add(fileName)
+    return fileName
+  }
+
+  const extension = extname(fileName)
+  const stem = basename(fileName, extension)
+  let counter = 2
+  let candidate = `${stem} (${counter})${extension}`
+  while (usedNames.has(candidate)) {
+    counter += 1
+    candidate = `${stem} (${counter})${extension}`
+  }
+  usedNames.add(candidate)
+  return candidate
 }
 
 function formatTxt(segments: TranscriptSegment[]): string {

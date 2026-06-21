@@ -4,7 +4,7 @@ import { JobReaderPage } from './components/JobReaderPage'
 import { KnowledgeSummaryPanel } from './components/KnowledgeSummaryPanel'
 import { LlmSettingsPanel } from './components/LlmSettingsPanel'
 import { TranscriptSegmentList } from './components/TranscriptSegmentList'
-import { useKnowledgeSummary } from './hooks/useKnowledgeSummary'
+import { useKnowledgeSummary, type SummaryStatus } from './hooks/useKnowledgeSummary'
 import { llmApi } from './lib/llmApi'
 import { getLlmProviderPreset, detectLlmProviderId } from './lib/llmProviders'
 import { formatClockTime, formatDuration } from './lib/transcript'
@@ -31,6 +31,15 @@ const statusLabels: Record<TranscriptionJob['status'], string> = {
   cancelled: '已取消'
 }
 
+const summaryStatusLabels: Record<SummaryStatus, string> = {
+  idle: '未生成',
+  loading: '核查中',
+  generating: '生成中',
+  ready: '已生成',
+  stale: '需更新',
+  error: '失败'
+}
+
 const serviceLabels: Record<LocalServiceStatus['state'], string> = {
   unknown: '未检查',
   starting: '启动中',
@@ -38,9 +47,42 @@ const serviceLabels: Record<LocalServiceStatus['state'], string> = {
   unavailable: '本地服务不可用'
 }
 
+function buildTranscriptStatusLabel(job: TranscriptionJob): string {
+  if (job.status === 'running') return `${Math.round(job.progress)}%`
+  if (job.source === 'cache' && job.status === 'completed') return '已缓存'
+  return statusLabels[job.status]
+}
+
+function buildSummaryStatusLabel(job: TranscriptionJob, status: SummaryStatus | undefined): string {
+  if (job.status !== 'completed') return '待文字稿'
+  if (job.segments.length === 0) return '文字稿为空'
+  return summaryStatusLabels[status || 'loading']
+}
+
+function buildSummaryStatusClass(
+  job: TranscriptionJob,
+  status: SummaryStatus | undefined
+): SummaryStatus | 'blocked' {
+  if (job.status !== 'completed' || job.segments.length === 0) return 'blocked'
+  return status || 'loading'
+}
+
+function hasExportableSummary(status: SummaryStatus | undefined): boolean {
+  return status === 'ready' || status === 'stale'
+}
+
+function buildBatchExportMessage(result: BatchExportResult, label: string): string {
+  if (result.canceled) return ''
+  const parts = [`已导出 ${result.exported} 个${label}`]
+  if (result.skipped > 0) parts.push(`${result.skipped} 个失败`)
+  return parts.join('，')
+}
+
 function App(): React.JSX.Element {
   const [jobs, setJobs] = useState<TranscriptionJob[]>([])
+  const [summaryStatuses, setSummaryStatuses] = useState<Record<string, SummaryStatus>>({})
   const [selectedJobId, setSelectedJobId] = useState('')
+  const [exportSelectedJobIds, setExportSelectedJobIds] = useState<Set<string>>(() => new Set())
   const [provider, setProvider] = useState<AsrProvider>('local-funasr')
   const [thirdPartyBaseUrl, setThirdPartyBaseUrl] = useState('')
   const [thirdPartyModel, setThirdPartyModel] = useState('')
@@ -66,6 +108,14 @@ function App(): React.JSX.Element {
         if (running) return running.id
         return nextJobs[0]?.id || ''
       })
+      setExportSelectedJobIds((current) => {
+        const validIds = new Set(nextJobs.map((job) => job.id))
+        const next = new Set<string>()
+        for (const jobId of current) {
+          if (validIds.has(jobId)) next.add(jobId)
+        }
+        return next.size === current.size ? current : next
+      })
     }
 
     const offJobs = window.api.asr.onJobsUpdated(applyJobs)
@@ -86,6 +136,57 @@ function App(): React.JSX.Element {
     return () => window.clearInterval(timer)
   }, [jobs])
 
+  useEffect(() => {
+    const completedJobsWithTranscript = jobs.filter(
+      (job) => job.status === 'completed' && job.segments.length > 0
+    )
+    let cancelled = false
+
+    for (const job of completedJobsWithTranscript) {
+      void llmApi
+        .getSummary(job.id)
+        .then((result) => {
+          if (cancelled) return
+          setSummaryStatuses((current) => {
+            if (current[job.id] === 'generating') return current
+            return {
+              ...current,
+              [job.id]: result ? (result.stale ? 'stale' : 'ready') : 'idle'
+            }
+          })
+        })
+        .catch(() => {
+          if (cancelled) return
+          setSummaryStatuses((current) => {
+            if (current[job.id] === 'generating') return current
+            return { ...current, [job.id]: 'error' }
+          })
+        })
+    }
+
+    return () => {
+      cancelled = true
+    }
+  }, [jobs])
+
+  useEffect(() => {
+    const offChunk = llmApi.onSummaryChunk((event) => {
+      setSummaryStatuses((current) => ({ ...current, [event.jobId]: 'generating' }))
+    })
+    const offDone = llmApi.onSummaryDone((event) => {
+      setSummaryStatuses((current) => ({ ...current, [event.jobId]: 'ready' }))
+    })
+    const offError = llmApi.onSummaryError((event) => {
+      setSummaryStatuses((current) => ({ ...current, [event.jobId]: 'error' }))
+    })
+
+    return () => {
+      offChunk()
+      offDone()
+      offError()
+    }
+  }, [])
+
   const selectedJob = useMemo(
     () => jobs.find((job) => job.id === selectedJobId) || jobs[0],
     [jobs, selectedJobId]
@@ -97,6 +198,18 @@ function App(): React.JSX.Element {
     selectedJob?.fileName
   )
   const completedJobs = jobs.filter((job) => job.status === 'completed').length
+  const selectedExportJobIds = useMemo(
+    () => Array.from(exportSelectedJobIds),
+    [exportSelectedJobIds]
+  )
+  const selectedExportableTranscriptJobs = jobs.filter(
+    (job) =>
+      exportSelectedJobIds.has(job.id) && job.status === 'completed' && job.segments.length > 0
+  ).length
+  const selectedExportableSummaryJobs = jobs.filter(
+    (job) => exportSelectedJobIds.has(job.id) && hasExportableSummary(summaryStatuses[job.id])
+  ).length
+  const allJobsSelectedForExport = jobs.length > 0 && exportSelectedJobIds.size === jobs.length
   const failedJobs = jobs.filter((job) => job.status === 'failed').length
   const totalSegments = jobs.reduce((total, job) => total + job.segments.length, 0)
   const completionRate = jobs.length > 0 ? Math.round((completedJobs / jobs.length) * 100) : 0
@@ -162,9 +275,63 @@ function App(): React.JSX.Element {
     })
   }
 
+  const toggleExportSelection = (jobId: string): void => {
+    setExportSelectedJobIds((current) => {
+      const next = new Set(current)
+      if (next.has(jobId)) next.delete(jobId)
+      else next.add(jobId)
+      return next
+    })
+  }
+
+  const toggleSelectAllForExport = (): void => {
+    setExportSelectedJobIds((current) => {
+      if (jobs.length === 0) return current
+      if (current.size === jobs.length) return new Set()
+      return new Set(jobs.map((job) => job.id))
+    })
+  }
+
+  const exportTranscriptsBatch = async (): Promise<void> => {
+    if (selectedExportJobIds.length === 0) {
+      window.alert('请先勾选要导出的任务')
+      return
+    }
+    try {
+      const result = await window.api.asr.exportTranscriptsBatch(selectedExportJobIds, 'txt')
+      const message = buildBatchExportMessage(result, '文字稿')
+      if (message) window.alert(message)
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : '批量导出文字稿失败')
+    }
+  }
+
+  const exportSummariesBatch = async (): Promise<void> => {
+    if (selectedExportJobIds.length === 0) {
+      window.alert('请先勾选要导出的任务')
+      return
+    }
+    try {
+      const result = await llmApi.exportSummariesBatch(selectedExportJobIds)
+      const message = buildBatchExportMessage(result, '知识总结')
+      if (message) window.alert(message)
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : '批量导出知识总结失败')
+    }
+  }
+
   const deleteJob = async (event: MouseEvent<HTMLButtonElement>, jobId: string): Promise<void> => {
     event.stopPropagation()
+    const job = jobs.find((candidate) => candidate.id === jobId)
+    const confirmed = window.confirm(`确认删除${job ? `「${job.fileName}」` : '该任务'}？`)
+    if (!confirmed) return
     await window.api.asr.deleteJob(jobId)
+    setExportSelectedJobIds((current) => {
+      if (!current.has(jobId)) return current
+      const next = new Set(current)
+      next.delete(jobId)
+      return next
+    })
   }
 
   const selectJobWithKeyboard = (event: KeyboardEvent<HTMLDivElement>, jobId: string): void => {
@@ -340,9 +507,52 @@ function App(): React.JSX.Element {
               <h2>处理队列</h2>
               <span>按添加顺序逐个转写</span>
             </div>
-            <span>
-              {completedJobs}/{jobs.length} 完成
-            </span>
+            <div className="panel-title-actions">
+              {jobs.length > 0 ? (
+                <div className="queue-export-actions">
+                  <button
+                    type="button"
+                    className="ghost-button compact-button"
+                    onClick={toggleSelectAllForExport}
+                  >
+                    {allJobsSelectedForExport ? '取消全选' : '全选'}
+                  </button>
+                  <button
+                    type="button"
+                    className="ghost-button compact-button"
+                    disabled={selectedExportableTranscriptJobs === 0}
+                    title={
+                      exportSelectedJobIds.size === 0
+                        ? '请先勾选要导出的任务'
+                        : selectedExportableTranscriptJobs === 0
+                          ? '所选任务中没有可导出的文字稿'
+                          : `导出已选 ${selectedExportableTranscriptJobs} 个 TXT 文字稿`
+                    }
+                    onClick={() => void exportTranscriptsBatch()}
+                  >
+                    导出文字稿
+                  </button>
+                  <button
+                    type="button"
+                    className="ghost-button compact-button"
+                    disabled={selectedExportableSummaryJobs === 0}
+                    title={
+                      exportSelectedJobIds.size === 0
+                        ? '请先勾选要导出的任务'
+                        : selectedExportableSummaryJobs === 0
+                          ? '所选任务中没有可导出的知识总结'
+                          : `导出已选 ${selectedExportableSummaryJobs} 个 Markdown 总结`
+                    }
+                    onClick={() => void exportSummariesBatch()}
+                  >
+                    导出总结
+                  </button>
+                </div>
+              ) : null}
+              <span className="panel-title-count">
+                {completedJobs}/{jobs.length} 完成
+              </span>
+            </div>
           </div>
 
           {jobs.length === 0 ? (
@@ -357,10 +567,30 @@ function App(): React.JSX.Element {
                   role="button"
                   tabIndex={0}
                   key={job.id}
-                  className={selectedJob?.id === job.id ? 'job-row selected' : 'job-row'}
+                  className={
+                    selectedJob?.id === job.id
+                      ? exportSelectedJobIds.has(job.id)
+                        ? 'job-row selected export-selected'
+                        : 'job-row selected'
+                      : exportSelectedJobIds.has(job.id)
+                        ? 'job-row export-selected'
+                        : 'job-row'
+                  }
                   onClick={() => setSelectedJobId(job.id)}
                   onKeyDown={(event) => selectJobWithKeyboard(event, job.id)}
                 >
+                  <label
+                    className="job-export-checkbox"
+                    onClick={(event) => event.stopPropagation()}
+                    onKeyDown={(event) => event.stopPropagation()}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={exportSelectedJobIds.has(job.id)}
+                      aria-label={`选择导出 ${job.fileName}`}
+                      onChange={() => toggleExportSelection(job.id)}
+                    />
+                  </label>
                   <div className="job-main">
                     <strong>{job.fileName}</strong>
                     <span>
@@ -371,11 +601,22 @@ function App(): React.JSX.Element {
                           : statusLabels[job.status]}
                     </span>
                   </div>
-                  <div className={`job-status ${job.status}`}>
-                    <span className="job-status-dot" />
-                    {job.status === 'running'
-                      ? `${Math.round(job.progress)}%`
-                      : statusLabels[job.status]}
+                  <div className="job-status-list" aria-label={`${job.fileName} 状态`}>
+                    <div className={`job-status ${job.status}`}>
+                      <span className="job-status-dot" />
+                      <span className="job-status-label">文字稿</span>
+                      <strong>{buildTranscriptStatusLabel(job)}</strong>
+                    </div>
+                    <div
+                      className={`job-status summary-status ${buildSummaryStatusClass(
+                        job,
+                        summaryStatuses[job.id]
+                      )}`}
+                    >
+                      <span className="job-status-dot" />
+                      <span className="job-status-label">总结</span>
+                      <strong>{buildSummaryStatusLabel(job, summaryStatuses[job.id])}</strong>
+                    </div>
                   </div>
                   <button
                     type="button"

@@ -466,6 +466,24 @@ h2 {
   line-height: 1.5;
 }
 
+.panel-title-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+.queue-export-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.panel-title-count {
+  white-space: nowrap;
+}
+
 .preview-panel-header {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto auto;
@@ -845,10 +863,10 @@ h2 {
 
 .job-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto auto;
-  gap: 10px;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 10px 14px;
   width: 100%;
-  padding: 14px 16px;
+  padding: 14px 16px 12px;
   border-bottom: 1px solid var(--asr-line);
   color: inherit;
   background: transparent;
@@ -857,8 +875,24 @@ h2 {
 }
 
 .job-row:hover,
-.job-row.selected {
+.job-row.selected,
+.job-row.export-selected {
   background: var(--asr-mist);
+}
+
+.job-export-checkbox {
+  display: flex;
+  align-items: start;
+  padding-top: 2px;
+  cursor: pointer;
+}
+
+.job-export-checkbox input {
+  width: 14px;
+  height: 14px;
+  margin: 0;
+  accent-color: var(--asr-black);
+  cursor: pointer;
 }
 
 .job-row:focus-visible {
@@ -896,19 +930,60 @@ h2 {
   display: flex;
   align-items: center;
   gap: 6px;
-  align-self: start;
-  border: 1px solid var(--asr-line);
-  border-radius: 26px;
-  padding: 3px 9px;
+  min-width: 0;
   color: var(--asr-black);
-  background: var(--asr-white);
   font-size: 12px;
   font-weight: 500;
-  line-height: 1.33;
+  line-height: 1.4;
+}
+
+.job-status-list {
+  display: grid;
+  grid-column: 2;
+  grid-template-columns: repeat(2, max-content);
+  gap: 18px;
+  align-items: center;
+  min-width: 0;
+  max-width: 100%;
+  padding: 2px 0 0;
+}
+
+.job-status-label {
+  flex: none;
+  color: var(--asr-muted);
+}
+
+.job-status strong {
+  overflow: hidden;
+  color: var(--asr-black);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.4;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.job-status.summary-status.ready .job-status-dot,
+.job-status.summary-status.generating .job-status-dot {
+  background: var(--asr-black);
+}
+
+.job-status.summary-status.loading .job-status-dot,
+.job-status.summary-status.idle .job-status-dot,
+.job-status.summary-status.stale .job-status-dot,
+.job-status.summary-status.blocked .job-status-dot {
+  background: var(--asr-mist);
+}
+
+.job-status.summary-status.error .job-status-dot {
+  background: var(--asr-ash);
 }
 
 .job-delete-button {
+  grid-column: 3;
+  grid-row: 1;
   align-self: start;
+  justify-self: end;
   border: 1px solid var(--asr-line);
   border-radius: 26px;
   padding: 3px 9px;
@@ -1024,7 +1099,7 @@ h2 {
 
 .progress-track {
   grid-column: 1 / -1;
-  height: 4px;
+  height: 2px;
   overflow: hidden;
   border-radius: 9999px;
   background: var(--asr-line);
