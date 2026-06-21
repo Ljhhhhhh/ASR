@@ -84,6 +84,39 @@ let serviceProcess: ChildProcessWithoutNullStreams | undefined
 let serviceState: ServiceState = 'unknown'
 let serviceMessage = ''
 
+export function getJobById(jobId: string): TranscriptionJob | undefined {
+  return jobs.get(jobId)
+}
+
+export async function getTranscriptFingerprint(
+  job: TranscriptionJob
+): Promise<TranscriptFingerprint> {
+  let size = 0
+  let mtimeMs = 0
+  try {
+    const fileStat = await stat(job.filePath)
+    size = fileStat.size
+    mtimeMs = fileStat.mtimeMs
+  } catch {
+    // keep zeros when source file is missing
+  }
+  return {
+    cacheKey: getCacheKey(job.filePath, job.fileName),
+    size,
+    mtimeMs,
+    segmentCount: job.segments.length,
+    jobUpdatedAt: job.updatedAt
+  }
+}
+
+export interface TranscriptFingerprint {
+  cacheKey: string
+  size: number
+  mtimeMs: number
+  segmentCount: number
+  jobUpdatedAt: string
+}
+
 export function registerAsrHandlers(mainWindow: BrowserWindow): void {
   const emitJobs = (): void => {
     mainWindow.webContents.send('asr:jobs-updated', Array.from(jobs.values()))
@@ -163,6 +196,22 @@ export function registerAsrHandlers(mainWindow: BrowserWindow): void {
   ipcMain.handle('asr:cancel-active-job', async () => {
     cancelRequested = true
     activeProcess?.kill()
+  })
+
+  ipcMain.handle('asr:delete-job', async (_event, jobId: string) => {
+    await loadJobHistory()
+    const job = jobs.get(jobId)
+    if (!job) return false
+
+    const wasRunning = job.status === 'running'
+    jobs.delete(jobId)
+    if (wasRunning) {
+      cancelRequested = true
+      activeProcess?.kill()
+    }
+    await persistJobHistory()
+    emitJobs()
+    return true
   })
 
   ipcMain.handle('asr:restart-local-service', async () => {
@@ -257,6 +306,10 @@ async function runQueue(
       try {
         await processJob(job, config, emitJobs)
       } catch (error) {
+        if (!jobs.has(job.id)) {
+          emitJobs()
+          continue
+        }
         const message = error instanceof Error ? error.message : String(error)
         job.status = cancelRequested ? 'cancelled' : 'failed'
         job.error = message
@@ -298,16 +351,19 @@ async function processJob(
     emitJobs()
 
     job.durationMs = await probeDuration(job.filePath)
+    assertJobTracked(job)
     addJobLog(job, `媒体时长 ${formatDuration(job.durationMs)}`)
     emitJobs()
 
     updateJobProgress(job, 'extracting', 15, '正在提取并标准化音频')
     emitJobs()
     await extractWav(job.filePath, wavPath, job.durationMs, (progress) => {
+      if (!isJobTracked(job)) return
       job.progress = Math.max(job.progress, Math.min(50, 15 + progress * 35))
       job.updatedAt = new Date().toISOString()
       emitJobs()
     })
+    assertJobTracked(job)
     addJobLog(job, '音频提取完成，已转换为 16kHz 单声道 WAV')
 
     updateJobProgress(
@@ -318,6 +374,7 @@ async function processJob(
     )
     emitJobs()
     const rawSegments = await runTranscriptionWithProgress(job, wavPath, config, emitJobs)
+    assertJobTracked(job)
     addJobLog(job, `ASR 返回 ${rawSegments.length} 个原始分句`)
 
     updateJobProgress(job, 'normalizing', 92, '正在整理时间轴和分句')
@@ -328,11 +385,20 @@ async function processJob(
     job.completedAt = new Date().toISOString()
     addJobLog(job, `转写完成，共 ${job.segments.length} 句`)
     job.source = 'transcription'
+    assertJobTracked(job)
     await saveCompletedJob(job)
     emitJobs()
   } finally {
     await rm(workDir, { recursive: true, force: true })
   }
+}
+
+function isJobTracked(job: TranscriptionJob): boolean {
+  return jobs.get(job.id) === job
+}
+
+function assertJobTracked(job: TranscriptionJob): void {
+  if (!isJobTracked(job)) throw new Error('Job deleted')
 }
 
 function updateJobProgress(
@@ -360,6 +426,10 @@ async function runTranscriptionWithProgress(
   const startedAt = Date.now()
   let heartbeatCount = 0
   const timer = setInterval(() => {
+    if (!isJobTracked(job)) {
+      clearInterval(timer)
+      return
+    }
     heartbeatCount += 1
     const elapsedMs = Date.now() - startedAt
     job.progress = Math.max(job.progress, Math.min(88, 58 + heartbeatCount * 3))
@@ -670,12 +740,8 @@ async function transcribeWithLocalService(wavPath: string): Promise<TranscriptSe
     body: JSON.stringify({ audio_path: wavPath })
   })
 
-  if (!response.ok) {
-    throw new Error(`Local FunASR failed: ${response.status} ${await response.text()}`)
-  }
-
-  const payload = await response.json()
-  return readSegments(payload)
+  const payload = await readAsrResponsePayload(response, '本地 FunASR')
+  return readAsrSegments(payload, '本地 FunASR')
 }
 
 async function transcribeWithThirdParty(
@@ -696,12 +762,67 @@ async function transcribeWithThirdParty(
     body: form
   })
 
+  const payload = await readAsrResponsePayload(response, '第三方 ASR')
+  return readAsrSegments(payload, '第三方 ASR')
+}
+
+async function readAsrResponsePayload(response: Response, providerLabel: string): Promise<unknown> {
+  const body = await response.text()
+  const detail = readResponseDetail(body)
+
   if (!response.ok) {
-    throw new Error(`Third-party ASR failed: ${response.status} ${await response.text()}`)
+    throw new Error(
+      `${providerLabel} 解析失败（${response.status}）${detail ? `：${detail}` : ''}`
+    )
   }
 
-  const payload = await response.json()
-  return readSegments(payload)
+  if (!body.trim()) {
+    throw new Error(`${providerLabel} 解析失败：服务返回了空响应`)
+  }
+
+  try {
+    return JSON.parse(body) as unknown
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    throw new Error(`${providerLabel} 解析失败：服务返回的内容不是有效 JSON（${message}）`)
+  }
+}
+
+function readResponseDetail(body: string): string {
+  const trimmed = body.trim()
+  if (!trimmed) return ''
+
+  try {
+    return readPayloadErrorDetail(JSON.parse(trimmed) as unknown) || limitDetail(trimmed)
+  } catch {
+    return limitDetail(trimmed)
+  }
+}
+
+function readPayloadErrorDetail(payload: unknown): string {
+  if (!payload || typeof payload !== 'object') return ''
+  const record = payload as Record<string, unknown>
+  const error = record.error
+  if (typeof error === 'string') return error
+  if (error && typeof error === 'object') {
+    const message = (error as Record<string, unknown>).message
+    if (typeof message === 'string') return message
+  }
+  return typeof record.message === 'string' ? record.message : ''
+}
+
+function limitDetail(detail: string): string {
+  return detail.length > 300 ? `${detail.slice(0, 300)}...` : detail
+}
+
+function readAsrSegments(payload: unknown, providerLabel: string): TranscriptSegment[] {
+  const segments = readSegments(payload)
+  if (segments.length > 0) return segments
+
+  const detail = readPayloadErrorDetail(payload)
+  throw new Error(
+    `${providerLabel} 解析失败：服务没有返回可用文字结果${detail ? `（${detail}）` : ''}`
+  )
 }
 
 async function ensureLocalService(emitService: () => void): Promise<void> {

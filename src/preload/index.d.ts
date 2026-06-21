@@ -45,10 +45,94 @@ declare global {
     message?: string
   }
 
+  interface LlmConfigPublic {
+    enabled: boolean
+    baseUrl: string
+    model: string
+    temperature: number
+    maxTokens: number
+    hasApiKey: boolean
+    apiKeyPreview?: string
+    updatedAt?: string
+  }
+
+  interface LlmConfigInput {
+    enabled: boolean
+    baseUrl: string
+    model: string
+    apiKey?: string
+    temperature?: number
+    maxTokens?: number
+  }
+
+  interface LlmTestResult {
+    ok: boolean
+    message: string
+    latencyMs?: number
+  }
+
+  interface LlmModelInfo {
+    id: string
+    label?: string
+  }
+
+  interface LlmListModelsResult {
+    ok: boolean
+    message: string
+    models: LlmModelInfo[]
+  }
+
+  interface TranscriptFingerprint {
+    cacheKey: string
+    size: number
+    mtimeMs: number
+    segmentCount: number
+    jobUpdatedAt: string
+  }
+
+  interface KnowledgeSummaryRecord {
+    jobId: string
+    fileName: string
+    transcriptFingerprint: TranscriptFingerprint
+    markdown: string
+    model: string
+    generatedAt: string
+    courseType?: CourseType
+    chunkCount?: number
+  }
+
+  interface KnowledgeSummaryResult {
+    record: KnowledgeSummaryRecord
+    stale: boolean
+  }
+
+  type CourseType = 'training' | 'interview' | 'lecture'
+
+  type SummaryStage = 'clean' | 'compose' | 'repair'
+
+  interface SummaryProgressEvent {
+    jobId: string
+    stage: SummaryStage
+    progress?: number
+    delta?: string
+    message?: string
+  }
+
+  interface SummaryDoneEvent {
+    jobId: string
+    record: KnowledgeSummaryRecord
+  }
+
+  interface SummaryErrorEvent {
+    jobId: string
+    message: string
+  }
+
   interface AsrApi {
     selectMediaFiles: () => Promise<string[]>
     startJobs: (filePaths: string[], config: AsrConfig) => Promise<void>
     cancelActiveJob: () => Promise<void>
+    deleteJob: (jobId: string) => Promise<boolean>
     restartLocalService: () => Promise<LocalServiceStatus>
     getLocalServiceStatus: () => Promise<LocalServiceStatus>
     getJobs: () => Promise<TranscriptionJob[]>
@@ -57,10 +141,25 @@ declare global {
     onServiceUpdated: (callback: (status: LocalServiceStatus) => void) => () => void
   }
 
+  interface LlmApi {
+    getConfig: () => Promise<LlmConfigPublic>
+    saveConfig: (input: LlmConfigInput) => Promise<LlmConfigPublic>
+    testConnection: (override?: Partial<LlmConfigInput>) => Promise<LlmTestResult>
+    listModels: (override?: Partial<LlmConfigInput>) => Promise<LlmListModelsResult>
+    getSummary: (jobId: string) => Promise<KnowledgeSummaryResult | null>
+    generateSummary: (jobId: string, courseType?: CourseType) => Promise<KnowledgeSummaryRecord>
+    cancelSummary: (jobId: string) => Promise<boolean>
+    exportSummary: (jobId: string) => Promise<void>
+    onSummaryChunk: (callback: (event: SummaryProgressEvent) => void) => () => void
+    onSummaryDone: (callback: (event: SummaryDoneEvent) => void) => () => void
+    onSummaryError: (callback: (event: SummaryErrorEvent) => void) => () => void
+  }
+
   interface Window {
     electron: ElectronAPI
     api: {
       asr: AsrApi
+      llm: LlmApi
     }
   }
 }

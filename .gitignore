@@ -5,3 +5,6 @@ out
 .DS_Store
 .eslintcache
 *.log*
+
+# Local ASR runtime data (transcripts, cache, LLM config with API keys)
+.asr/

@@ -40,7 +40,7 @@ def load_model() -> None:
         model_name = str(STATE["model_name"])
         vad_model = os.environ.get("ASR_FUNASR_VAD_MODEL", "")
         punc_model = os.environ.get("ASR_FUNASR_PUNC_MODEL", "")
-        device = os.environ.get("ASR_FUNASR_DEVICE", "cpu")
+        device = os.environ.get("ASR_FUNASR_DEVICE", "mps")
         STATE["message"] = f"Loading FunASR model: {model_name}"
         model_kwargs = {
             "model": model_name,

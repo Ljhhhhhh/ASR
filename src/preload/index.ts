@@ -45,6 +45,89 @@ interface LocalServiceStatus {
   message?: string
 }
 
+interface LlmConfigPublic {
+  enabled: boolean
+  baseUrl: string
+  model: string
+  temperature: number
+  maxTokens: number
+  hasApiKey: boolean
+  apiKeyPreview?: string
+  updatedAt?: string
+}
+
+interface LlmConfigInput {
+  enabled: boolean
+  baseUrl: string
+  model: string
+  apiKey?: string
+  temperature?: number
+  maxTokens?: number
+}
+
+interface LlmTestResult {
+  ok: boolean
+  message: string
+  latencyMs?: number
+}
+
+interface LlmModelInfo {
+  id: string
+  label?: string
+}
+
+interface LlmListModelsResult {
+  ok: boolean
+  message: string
+  models: LlmModelInfo[]
+}
+
+interface TranscriptFingerprint {
+  cacheKey: string
+  size: number
+  mtimeMs: number
+  segmentCount: number
+  jobUpdatedAt: string
+}
+
+interface KnowledgeSummaryRecord {
+  jobId: string
+  fileName: string
+  transcriptFingerprint: TranscriptFingerprint
+  markdown: string
+  model: string
+  generatedAt: string
+  courseType?: CourseType
+  chunkCount?: number
+}
+
+interface KnowledgeSummaryResult {
+  record: KnowledgeSummaryRecord
+  stale: boolean
+}
+
+type CourseType = 'training' | 'interview' | 'lecture'
+
+type SummaryStage = 'clean' | 'compose' | 'repair'
+
+interface SummaryProgressEvent {
+  jobId: string
+  stage: SummaryStage
+  progress?: number
+  delta?: string
+  message?: string
+}
+
+interface SummaryDoneEvent {
+  jobId: string
+  record: KnowledgeSummaryRecord
+}
+
+interface SummaryErrorEvent {
+  jobId: string
+  message: string
+}
+
 // Custom APIs for renderer
 const api = {
   asr: {
@@ -52,6 +135,7 @@ const api = {
     startJobs: (filePaths: string[], config: AsrConfig) =>
       ipcRenderer.invoke('asr:start-jobs', filePaths, config),
     cancelActiveJob: () => ipcRenderer.invoke('asr:cancel-active-job'),
+    deleteJob: (jobId: string) => ipcRenderer.invoke('asr:delete-job', jobId),
     restartLocalService: () => ipcRenderer.invoke('asr:restart-local-service'),
     getLocalServiceStatus: () => ipcRenderer.invoke('asr:get-local-service-status'),
     getJobs: () => ipcRenderer.invoke('asr:get-jobs') as Promise<TranscriptionJob[]>,
@@ -68,6 +152,41 @@ const api = {
         callback(status)
       ipcRenderer.on('asr:service-updated', listener)
       return () => ipcRenderer.removeListener('asr:service-updated', listener)
+    }
+  },
+  llm: {
+    getConfig: (): Promise<LlmConfigPublic> => ipcRenderer.invoke('llm:get-config'),
+    saveConfig: (input: LlmConfigInput): Promise<LlmConfigPublic> =>
+      ipcRenderer.invoke('llm:save-config', input),
+    testConnection: (override?: Partial<LlmConfigInput>): Promise<LlmTestResult> =>
+      ipcRenderer.invoke('llm:test-connection', override),
+    listModels: (override?: Partial<LlmConfigInput>): Promise<LlmListModelsResult> =>
+      ipcRenderer.invoke('llm:list-models', override),
+    getSummary: (jobId: string): Promise<KnowledgeSummaryResult | null> =>
+      ipcRenderer.invoke('llm:get-summary', jobId),
+    generateSummary: (jobId: string, courseType?: CourseType): Promise<KnowledgeSummaryRecord> =>
+      ipcRenderer.invoke('llm:generate-summary', jobId, courseType),
+    cancelSummary: (jobId: string): Promise<boolean> =>
+      ipcRenderer.invoke('llm:cancel-summary', jobId),
+    exportSummary: (jobId: string): Promise<void> =>
+      ipcRenderer.invoke('llm:export-summary', jobId),
+    onSummaryChunk: (callback: (event: SummaryProgressEvent) => void): (() => void) => {
+      const listener = (_event: Electron.IpcRendererEvent, payload: SummaryProgressEvent): void =>
+        callback(payload)
+      ipcRenderer.on('llm:summary-chunk', listener)
+      return () => ipcRenderer.removeListener('llm:summary-chunk', listener)
+    },
+    onSummaryDone: (callback: (event: SummaryDoneEvent) => void): (() => void) => {
+      const listener = (_event: Electron.IpcRendererEvent, payload: SummaryDoneEvent): void =>
+        callback(payload)
+      ipcRenderer.on('llm:summary-done', listener)
+      return () => ipcRenderer.removeListener('llm:summary-done', listener)
+    },
+    onSummaryError: (callback: (event: SummaryErrorEvent) => void): (() => void) => {
+      const listener = (_event: Electron.IpcRendererEvent, payload: SummaryErrorEvent): void =>
+        callback(payload)
+      ipcRenderer.on('llm:summary-error', listener)
+      return () => ipcRenderer.removeListener('llm:summary-error', listener)
     }
   }
 }
