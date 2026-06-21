@@ -27,6 +27,7 @@
     "@langchain/openai": "^1.5.1",
     "@langchain/textsplitters": "^1.0.1",
     "langchain": "^1.5.0",
+    "markdown-to-image": "^0.0.13",
     "mermaid": "^11.15.0",
     "react-markdown": "^10.1.0",
     "rehype-sanitize": "^6.0.0",

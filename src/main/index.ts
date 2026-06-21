@@ -5,7 +5,7 @@ import icon from '../../resources/icon.png?asset'
 import { registerAsrHandlers } from './asr'
 import { registerLlmHandlers } from './llm'
 
-function createWindow(): void {
+async function createWindow(): Promise<void> {
   // Create the browser window.
   const mainWindow = new BrowserWindow({
     width: 1180,
@@ -31,7 +31,7 @@ function createWindow(): void {
   })
 
   registerAsrHandlers(mainWindow)
-  registerLlmHandlers(mainWindow)
+  await registerLlmHandlers(mainWindow)
 
   // HMR for renderer base on electron-vite cli.
   // Load the remote URL for development or the local html file for production.
@@ -56,12 +56,12 @@ app.whenReady().then(() => {
     optimizer.watchWindowShortcuts(window)
   })
 
-  createWindow()
+  void createWindow()
 
   app.on('activate', function () {
     // On macOS it's common to re-create a window in the app when the
     // dock icon is clicked and there are no other windows open.
-    if (BrowserWindow.getAllWindows().length === 0) createWindow()
+    if (BrowserWindow.getAllWindows().length === 0) void createWindow()
   })
 })
 

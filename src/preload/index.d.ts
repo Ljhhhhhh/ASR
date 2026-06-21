@@ -108,7 +108,7 @@ declare global {
 
   type CourseType = 'training' | 'interview' | 'lecture'
 
-  type SummaryStage = 'clean' | 'compose' | 'repair'
+  type SummaryStage = 'extract' | 'train' | 'migrate' | 'repair'
 
   interface SummaryProgressEvent {
     jobId: string
@@ -150,6 +150,7 @@ declare global {
     generateSummary: (jobId: string, courseType?: CourseType) => Promise<KnowledgeSummaryRecord>
     cancelSummary: (jobId: string) => Promise<boolean>
     exportSummary: (jobId: string) => Promise<void>
+    saveSummaryImageFromClipboard: (jobId: string) => Promise<void>
     onSummaryChunk: (callback: (event: SummaryProgressEvent) => void) => () => void
     onSummaryDone: (callback: (event: SummaryDoneEvent) => void) => () => void
     onSummaryError: (callback: (event: SummaryErrorEvent) => void) => () => void

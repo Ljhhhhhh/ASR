@@ -383,6 +383,14 @@ export function JobReaderPage({
               >
                 导出 Markdown
               </button>
+              <button
+                type="button"
+                className="ghost-button"
+                disabled={!hasSummaryContent}
+                onClick={() => void summary.exportSummaryImage()}
+              >
+                导出图片
+              </button>
             </>
           )}
         </div>

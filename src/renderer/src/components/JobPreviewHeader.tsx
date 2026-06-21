@@ -14,6 +14,7 @@ interface JobPreviewHeaderProps {
   onExportTxt: () => void
   onExportSrt: () => void
   onExportMarkdown: () => void
+  onExportImage: () => void
 }
 
 function buildSummaryMeta(summary: KnowledgeSummaryState): string {
@@ -46,7 +47,8 @@ export function JobPreviewHeader({
   onOpenReader,
   onExportTxt,
   onExportSrt,
-  onExportMarkdown
+  onExportMarkdown,
+  onExportImage
 }: JobPreviewHeaderProps): React.JSX.Element {
   const hasSummaryContent = summary.markdown.trim().length > 0
   const isSummaryGenerating = summary.status === 'generating'
@@ -149,6 +151,14 @@ export function JobPreviewHeader({
               onClick={onExportMarkdown}
             >
               MD
+            </button>
+            <button
+              type="button"
+              className="ghost-button compact-button"
+              disabled={!hasSummaryContent}
+              onClick={onExportImage}
+            >
+              PNG
             </button>
           </>
         )}

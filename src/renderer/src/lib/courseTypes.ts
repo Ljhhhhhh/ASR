@@ -7,8 +7,9 @@ export const COURSE_TYPE_OPTIONS: Array<{ id: CourseType; label: string }> = [
 export const DEFAULT_COURSE_TYPE: CourseType = 'training'
 
 const STAGE_MESSAGES: Record<SummaryStage, string> = {
-  clean: '正在净化课堂口播…',
-  compose: '正在撰写学习笔记…',
+  extract: '正在清洗课程并提炼核心…',
+  train: '正在生成学习训练…',
+  migrate: '正在生成业务迁移成品…',
   repair: '正在检查 Mermaid 图表…'
 }
 

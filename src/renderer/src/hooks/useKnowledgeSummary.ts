@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { DEFAULT_COURSE_TYPE, summaryStageMessage } from '../lib/courseTypes'
 import { llmApi } from '../lib/llmApi'
+import { copySummaryImageToClipboard } from '../lib/summaryImageExport'
 
 export type SummaryStatus = 'idle' | 'loading' | 'generating' | 'ready' | 'stale' | 'error'
 
@@ -18,11 +19,13 @@ interface UseKnowledgeSummaryResult {
   cancel: () => Promise<void>
   reload: () => Promise<void>
   exportSummary: () => Promise<void>
+  exportSummaryImage: () => Promise<void>
 }
 
 export function useKnowledgeSummary(
   jobId: string | undefined,
-  enabled: boolean
+  enabled: boolean,
+  fileName?: string
 ): UseKnowledgeSummaryResult {
   const [markdown, setMarkdown] = useState('')
   const [status, setStatus] = useState<SummaryStatus>('idle')
@@ -76,7 +79,10 @@ export function useKnowledgeSummary(
   }, [enabled, jobId])
 
   useEffect(() => {
-    void reload()
+    const timer = window.setTimeout(() => {
+      void reload()
+    }, 0)
+    return () => window.clearTimeout(timer)
   }, [reload])
 
   useEffect(() => {
@@ -85,10 +91,8 @@ export function useKnowledgeSummary(
       setStatus('generating')
       setMessage(event.message || summaryStageMessage(event.stage))
 
-      if (event.stage === 'compose') {
-        if (event.delta) {
-          setMarkdown((current) => current + event.delta)
-        }
+      if (event.delta) {
+        setMarkdown((current) => current + event.delta)
         return
       }
 
@@ -166,6 +170,12 @@ export function useKnowledgeSummary(
     await llmApi.exportSummary(jobId)
   }, [jobId])
 
+  const exportSummaryImage = useCallback(async () => {
+    if (!jobId || !markdown.trim()) return
+    await copySummaryImageToClipboard(markdown, fileName || '知识总结')
+    await llmApi.saveSummaryImageFromClipboard(jobId)
+  }, [fileName, jobId, markdown])
+
   return {
     markdown,
     status,
@@ -179,6 +189,7 @@ export function useKnowledgeSummary(
     generate,
     cancel,
     reload,
-    exportSummary
+    exportSummary,
+    exportSummaryImage
   }
 }

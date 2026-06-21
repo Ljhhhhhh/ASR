@@ -91,7 +91,11 @@ function App(): React.JSX.Element {
     [jobs, selectedJobId]
   )
   const selectedJobCompleted = selectedJob?.status === 'completed'
-  const knowledgeSummary = useKnowledgeSummary(selectedJob?.id, selectedJobCompleted)
+  const knowledgeSummary = useKnowledgeSummary(
+    selectedJob?.id,
+    selectedJobCompleted,
+    selectedJob?.fileName
+  )
   const completedJobs = jobs.filter((job) => job.status === 'completed').length
   const failedJobs = jobs.filter((job) => job.status === 'failed').length
   const totalSegments = jobs.reduce((total, job) => total + job.segments.length, 0)
@@ -407,6 +411,7 @@ function App(): React.JSX.Element {
               onExportTxt={() => void window.api.asr.exportTranscript(selectedJob.id, 'txt')}
               onExportSrt={() => void window.api.asr.exportTranscript(selectedJob.id, 'srt')}
               onExportMarkdown={() => void knowledgeSummary.exportSummary()}
+              onExportImage={() => void knowledgeSummary.exportSummaryImage()}
             />
           ) : (
             <div className="preview-panel-header preview-panel-header-fallback">

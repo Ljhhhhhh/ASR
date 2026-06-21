@@ -1,4 +1,4 @@
-import { BrowserWindow, dialog, ipcMain } from 'electron'
+import { BrowserWindow, clipboard, dialog, ipcMain } from 'electron'
 import { basename, extname, join } from 'path'
 import { writeFile } from 'fs/promises'
 import { getJobById, getTranscriptFingerprint } from '../asr'
@@ -121,5 +121,25 @@ export function registerSummaryHandlers(mainWindow: BrowserWindow): void {
 
     if (result.canceled || !result.filePath) return
     await writeFile(result.filePath, record.markdown, 'utf8')
+  })
+
+  ipcMain.handle('llm:save-summary-image-from-clipboard', async (_event, jobId: string) => {
+    const record = await loadKnowledgeSummary(jobId)
+    if (!record) throw new Error('没有可导出的知识总结')
+
+    const image = clipboard.readImage()
+    if (image.isEmpty()) throw new Error('没有可保存的知识总结图片')
+
+    const defaultPath = join(
+      process.cwd(),
+      `${basename(record.fileName, extname(record.fileName))}-知识总结.png`
+    )
+    const result = await dialog.showSaveDialog(mainWindow, {
+      defaultPath,
+      filters: [{ name: 'PNG Image', extensions: ['png'] }]
+    })
+
+    if (result.canceled || !result.filePath) return
+    await writeFile(result.filePath, image.toPNG())
   })
 }

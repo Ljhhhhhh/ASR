@@ -108,7 +108,7 @@ interface KnowledgeSummaryResult {
 
 type CourseType = 'training' | 'interview' | 'lecture'
 
-type SummaryStage = 'clean' | 'compose' | 'repair'
+type SummaryStage = 'extract' | 'train' | 'migrate' | 'repair'
 
 interface SummaryProgressEvent {
   jobId: string
@@ -170,6 +170,8 @@ const api = {
       ipcRenderer.invoke('llm:cancel-summary', jobId),
     exportSummary: (jobId: string): Promise<void> =>
       ipcRenderer.invoke('llm:export-summary', jobId),
+    saveSummaryImageFromClipboard: (jobId: string): Promise<void> =>
+      ipcRenderer.invoke('llm:save-summary-image-from-clipboard', jobId),
     onSummaryChunk: (callback: (event: SummaryProgressEvent) => void): (() => void) => {
       const listener = (_event: Electron.IpcRendererEvent, payload: SummaryProgressEvent): void =>
         callback(payload)

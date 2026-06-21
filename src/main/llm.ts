@@ -1,5 +1,4 @@
 import { BrowserWindow, ipcMain } from 'electron'
-import { registerSummaryHandlers } from './llm/summaryHandlers'
 import { mkdir, readFile, writeFile } from 'fs/promises'
 import { dirname, join } from 'path'
 
@@ -463,7 +462,8 @@ export async function callLlmChat(
   return content
 }
 
-export function registerLlmHandlers(mainWindow: BrowserWindow): void {
+export async function registerLlmHandlers(mainWindow: BrowserWindow): Promise<void> {
+  const { registerSummaryHandlers } = await import('./llm/summaryHandlers')
   registerSummaryHandlers(mainWindow)
   ipcMain.handle('llm:get-config', async () => getLlmConfigPublic())
 

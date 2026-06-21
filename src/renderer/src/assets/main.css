@@ -798,6 +798,20 @@ h2 {
   background: var(--asr-mist);
 }
 
+.summary-image-export-host {
+  position: fixed;
+  left: -10000px;
+  top: 0;
+  width: 960px;
+  pointer-events: none;
+}
+
+.summary-image-export-header,
+.summary-image-export-footer {
+  font-size: 13px;
+  color: #4b5563;
+}
+
 .mermaid-block {
   display: flex;
   justify-content: center;
