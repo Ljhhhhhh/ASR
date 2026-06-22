@@ -100,6 +100,7 @@ function App(): React.JSX.Element {
   const [transcriptTab, setTranscriptTab] = useState<'transcript' | 'summary'>('transcript')
   const [appView, setAppView] = useState<'workbench' | 'reader'>('workbench')
   const [exportingSummaryImages, setExportingSummaryImages] = useState(false)
+  const [exportingSummaryPdfs, setExportingSummaryPdfs] = useState(false)
 
   useEffect(() => {
     const applyJobs = (nextJobs: TranscriptionJob[]): void => {
@@ -348,6 +349,24 @@ function App(): React.JSX.Element {
     }
   }
 
+  const exportSummariesPdfBatchAction = async (): Promise<void> => {
+    if (selectedExportJobIds.length === 0) {
+      window.alert('请先勾选要导出的任务')
+      return
+    }
+
+    setExportingSummaryPdfs(true)
+    try {
+      const result = await llmApi.exportSummariesPdfBatch(selectedExportJobIds)
+      const message = buildBatchExportMessage(result, '知识总结 PDF')
+      if (message) window.alert(message)
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : '批量导出知识总结 PDF 失败')
+    } finally {
+      setExportingSummaryPdfs(false)
+    }
+  }
+
   const deleteJob = async (event: MouseEvent<HTMLButtonElement>, jobId: string): Promise<void> => {
     event.stopPropagation()
     const job = jobs.find((candidate) => candidate.id === jobId)
@@ -582,6 +601,23 @@ function App(): React.JSX.Element {
                 <button
                   type="button"
                   className="ghost-button compact-button"
+                  disabled={selectedExportableSummaryJobs === 0 || exportingSummaryPdfs}
+                  title={
+                    exportingSummaryPdfs
+                      ? '正在生成知识总结 PDF…'
+                      : exportSelectedJobIds.size === 0
+                        ? '请先勾选要导出的任务'
+                        : selectedExportableSummaryJobs === 0
+                          ? '所选任务中没有可导出的知识总结'
+                          : `导出已选 ${selectedExportableSummaryJobs} 个 PDF`
+                  }
+                  onClick={() => void exportSummariesPdfBatchAction()}
+                >
+                  {exportingSummaryPdfs ? '导出中…' : '导出 PDF'}
+                </button>
+                <button
+                  type="button"
+                  className="ghost-button compact-button"
                   disabled={selectedExportableSummaryJobs === 0 || exportingSummaryImages}
                   title={
                     exportingSummaryImages
@@ -697,6 +733,7 @@ function App(): React.JSX.Element {
               onExportTxt={() => void window.api.asr.exportTranscript(selectedJob.id, 'txt')}
               onExportSrt={() => void window.api.asr.exportTranscript(selectedJob.id, 'srt')}
               onExportMarkdown={() => void knowledgeSummary.exportSummary()}
+              onExportPdf={() => void knowledgeSummary.exportSummaryPdf()}
               onExportImage={() => void knowledgeSummary.exportSummaryImage()}
             />
           ) : (

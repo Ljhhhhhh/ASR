@@ -19,6 +19,7 @@ interface UseKnowledgeSummaryResult {
   cancel: () => Promise<void>
   reload: () => Promise<void>
   exportSummary: () => Promise<void>
+  exportSummaryPdf: () => Promise<void>
   exportSummaryImage: () => Promise<void>
 }
 
@@ -170,6 +171,11 @@ export function useKnowledgeSummary(
     await llmApi.exportSummary(jobId)
   }, [jobId])
 
+  const exportSummaryPdf = useCallback(async () => {
+    if (!jobId) return
+    await llmApi.exportSummaryPdf(jobId)
+  }, [jobId])
+
   const exportSummaryImage = useCallback(async () => {
     if (!jobId || !markdown.trim()) return
     await copySummaryImageToClipboard(markdown, fileName || '知识总结')
@@ -190,6 +196,7 @@ export function useKnowledgeSummary(
     cancel,
     reload,
     exportSummary,
+    exportSummaryPdf,
     exportSummaryImage
   }
 }

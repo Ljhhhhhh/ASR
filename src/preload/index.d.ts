@@ -168,7 +168,9 @@ declare global {
     generateSummary: (jobId: string, courseType?: CourseType) => Promise<KnowledgeSummaryRecord>
     cancelSummary: (jobId: string) => Promise<boolean>
     exportSummary: (jobId: string) => Promise<void>
+    exportSummaryPdf: (jobId: string) => Promise<void>
     exportSummariesBatch: (jobIds: string[]) => Promise<BatchExportResult>
+    exportSummariesPdfBatch: (jobIds: string[]) => Promise<BatchExportResult>
     writeSummaryImageFiles: (
       directory: string,
       files: SummaryImageFilePayload[]

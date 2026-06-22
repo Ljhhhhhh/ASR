@@ -387,6 +387,14 @@ export function JobReaderPage({
                 type="button"
                 className="ghost-button"
                 disabled={!hasSummaryContent}
+                onClick={() => void summary.exportSummaryPdf()}
+              >
+                导出 PDF
+              </button>
+              <button
+                type="button"
+                className="ghost-button"
+                disabled={!hasSummaryContent}
                 onClick={() => void summary.exportSummaryImage()}
               >
                 导出图片

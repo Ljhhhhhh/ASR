@@ -190,8 +190,12 @@ const api = {
       ipcRenderer.invoke('llm:cancel-summary', jobId),
     exportSummary: (jobId: string): Promise<void> =>
       ipcRenderer.invoke('llm:export-summary', jobId),
+    exportSummaryPdf: (jobId: string): Promise<void> =>
+      ipcRenderer.invoke('llm:export-summary-pdf', jobId),
     exportSummariesBatch: (jobIds: string[]): Promise<BatchExportResult> =>
       ipcRenderer.invoke('llm:export-summaries-batch', jobIds),
+    exportSummariesPdfBatch: (jobIds: string[]): Promise<BatchExportResult> =>
+      ipcRenderer.invoke('llm:export-summaries-pdf-batch', jobIds),
     writeSummaryImageFiles: (
       directory: string,
       files: SummaryImageFilePayload[]

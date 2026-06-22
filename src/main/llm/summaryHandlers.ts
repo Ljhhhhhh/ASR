@@ -23,6 +23,7 @@ import {
   saveKnowledgeSummary,
   type KnowledgeSummaryRecord
 } from './summaryStore'
+import { convertSummaryMarkdownToPdf } from './summaryPdfExport'
 
 const activeSummaryJobs = new Map<string, AbortController>()
 
@@ -239,4 +240,79 @@ export function registerSummaryHandlers(mainWindow: BrowserWindow): void {
     await writeFile(result.filePath, image.toPNG())
     await rememberExportPath(result.filePath)
   })
+
+  ipcMain.handle('llm:export-summary-pdf', async (_event, jobId: string) => {
+    const record = await loadKnowledgeSummary(jobId)
+    if (!record) throw new Error('没有可导出的知识总结')
+
+    const baseName = basename(record.fileName, extname(record.fileName))
+    const defaultPath = await buildDefaultSavePath(`${baseName}-知识总结.pdf`)
+    const result = await dialog.showSaveDialog(mainWindow, {
+      defaultPath,
+      filters: [{ name: 'PDF', extensions: ['pdf'] }]
+    })
+
+    if (result.canceled || !result.filePath) return
+
+    const pdf = await convertSummaryMarkdownToPdf(record.markdown, `知识总结：${baseName}`)
+    await writeFile(result.filePath, pdf)
+    await rememberExportPath(result.filePath)
+  })
+
+  ipcMain.handle(
+    'llm:export-summaries-pdf-batch',
+    async (_event, jobIds: string[]): Promise<BatchExportResult> => {
+      if (!Array.isArray(jobIds) || jobIds.length === 0) {
+        throw new Error('请先勾选要导出的任务')
+      }
+
+      const selectedIds = new Set(jobIds)
+      const selectedJobs = getAllJobs().filter((job) => selectedIds.has(job.id))
+      if (selectedJobs.length === 0) {
+        throw new Error('所选任务不存在或已被删除')
+      }
+
+      const records = (
+        await Promise.all(
+          selectedJobs.map(async (job) => ({
+            job,
+            record: await loadKnowledgeSummary(job.id)
+          }))
+        )
+      ).filter(
+        (
+          entry
+        ): entry is { job: (typeof selectedJobs)[number]; record: KnowledgeSummaryRecord } =>
+          Boolean(entry.record)
+      )
+
+      if (records.length === 0) {
+        throw new Error('所选任务中没有可导出的知识总结')
+      }
+
+      const directory = await pickExportDirectory(mainWindow)
+      if (!directory) {
+        return { exported: 0, skipped: 0, canceled: true }
+      }
+
+      const usedNames = new Set<string>()
+      let exported = 0
+      let skipped = 0
+
+      for (const { record } of records) {
+        const baseName = basename(record.fileName, extname(record.fileName))
+        const fileName = resolveUniqueFileName(usedNames, `${baseName}-知识总结.pdf`)
+        try {
+          const pdf = await convertSummaryMarkdownToPdf(record.markdown, `知识总结：${baseName}`)
+          await writeFile(join(directory, fileName), pdf)
+          exported += 1
+        } catch {
+          skipped += 1
+        }
+      }
+
+      await rememberExportDirectory(directory)
+      return { exported, skipped }
+    }
+  )
 }

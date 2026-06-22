@@ -19,8 +19,11 @@ export const llmApi = {
     invokeLlm('llm:generate-summary', jobId, courseType),
   cancelSummary: (jobId: string): Promise<boolean> => invokeLlm('llm:cancel-summary', jobId),
   exportSummary: (jobId: string): Promise<void> => invokeLlm('llm:export-summary', jobId),
+  exportSummaryPdf: (jobId: string): Promise<void> => invokeLlm('llm:export-summary-pdf', jobId),
   exportSummariesBatch: (jobIds: string[]): Promise<BatchExportResult> =>
     invokeLlm('llm:export-summaries-batch', jobIds),
+  exportSummariesPdfBatch: (jobIds: string[]): Promise<BatchExportResult> =>
+    invokeLlm('llm:export-summaries-pdf-batch', jobIds),
   writeSummaryImageFiles: (
     directory: string,
     files: SummaryImageFilePayload[]

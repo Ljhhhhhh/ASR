@@ -14,6 +14,7 @@ interface JobPreviewHeaderProps {
   onExportTxt: () => void
   onExportSrt: () => void
   onExportMarkdown: () => void
+  onExportPdf: () => void
   onExportImage: () => void
 }
 
@@ -48,6 +49,7 @@ export function JobPreviewHeader({
   onExportTxt,
   onExportSrt,
   onExportMarkdown,
+  onExportPdf,
   onExportImage
 }: JobPreviewHeaderProps): React.JSX.Element {
   const hasSummaryContent = summary.markdown.trim().length > 0
@@ -151,6 +153,14 @@ export function JobPreviewHeader({
               onClick={onExportMarkdown}
             >
               MD
+            </button>
+            <button
+              type="button"
+              className="ghost-button compact-button"
+              disabled={!hasSummaryContent}
+              onClick={onExportPdf}
+            >
+              PDF
             </button>
             <button
               type="button"
