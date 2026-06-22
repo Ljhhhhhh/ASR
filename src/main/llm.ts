@@ -1,6 +1,7 @@
 import { BrowserWindow, ipcMain } from 'electron'
 import { mkdir, readFile, writeFile } from 'fs/promises'
 import { dirname, join } from 'path'
+import { getAsrDataDir } from './asrDataDir'
 
 const LLM_CONFIG_VERSION = 1
 const DEFAULT_BASE_URL = 'https://api.openai.com/v1'
@@ -63,10 +64,6 @@ export interface LlmListModelsResult {
 }
 
 let cachedConfig: LlmConfig | undefined
-
-function getAsrDataDir(): string {
-  return join(process.cwd(), '.asr')
-}
 
 function getLlmConfigPath(): string {
   return join(getAsrDataDir(), 'llm-config.json')

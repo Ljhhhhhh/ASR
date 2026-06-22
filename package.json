@@ -15,9 +15,16 @@
     "dev": "electron-vite dev",
     "build": "npm run typecheck && electron-vite build",
     "postinstall": "electron-builder install-app-deps",
+    "asr:runtime:prepare:mac": "node scripts/prepare_asr_runtime.mjs --platform darwin-arm64",
+    "asr:runtime:prepare:mac-arm64": "node scripts/prepare_asr_runtime.mjs --platform darwin-arm64",
+    "asr:runtime:prepare:windows": "node scripts/prepare_asr_runtime.mjs --platform win32-x64",
+    "asr:runtime:prepare:win-x64": "node scripts/prepare_asr_runtime.mjs --platform win32-x64",
+    "asr:runtime:verify": "node scripts/verify_asr_runtime.mjs",
     "build:unpack": "npm run build && electron-builder --dir",
     "build:win": "npm run build && electron-builder --win",
     "build:mac": "electron-vite build && electron-builder --mac",
+    "build:mac:local": "npm run asr:runtime:prepare:mac && npm run asr:runtime:verify && electron-vite build && electron-builder --mac --arm64 --config electron-builder.local.yml",
+    "build:win:local": "npm run asr:runtime:prepare:windows && npm run asr:runtime:verify && electron-vite build && electron-builder --win --x64 --config electron-builder.local.yml",
     "build:linux": "electron-vite build && electron-builder --linux"
   },
   "dependencies": {

@@ -22,6 +22,9 @@ STATE = {
     "message": "Loading FunASR model",
     "model": None,
     "model_name": os.environ.get("ASR_FUNASR_MODEL", "FunAudioLLM/Fun-ASR-Nano-2512"),
+    "device": os.environ.get("ASR_FUNASR_DEVICE", "auto"),
+    "cache_dir": os.environ.get("ASR_FUNASR_CACHE_DIR", ""),
+    "device_note": "",
 }
 
 
@@ -33,6 +36,31 @@ MAX_CHUNK_SECONDS = float(os.environ.get("ASR_FUNASR_CHUNK_SECONDS", "30"))
 SILENCE_RMS_THRESHOLD = float(os.environ.get("ASR_FUNASR_SILENCE_RMS", "0.0005"))
 
 
+def resolve_device(requested_device: str) -> tuple[str, str]:
+    try:
+        import torch
+
+        if requested_device == "mps":
+            if sys.platform == "darwin" and torch.backends.mps.is_available():
+                return "mps", ""
+            return "cpu", "mps unavailable; fallback to cpu"
+        if requested_device == "cuda":
+            if torch.cuda.is_available():
+                return "cuda", ""
+            return "cpu", "cuda unavailable; fallback to cpu"
+        if requested_device != "auto":
+            return requested_device, ""
+
+        if sys.platform == "darwin" and torch.backends.mps.is_available():
+            return "mps", "auto selected mps"
+        if torch.cuda.is_available():
+            return "cuda", "auto selected cuda"
+    except Exception as exc:
+        return "cpu", f"auto fallback to cpu: {exc}"
+
+    return "cpu", "auto selected cpu"
+
+
 def load_model() -> None:
     try:
         from funasr import AutoModel
@@ -40,8 +68,16 @@ def load_model() -> None:
         model_name = str(STATE["model_name"])
         vad_model = os.environ.get("ASR_FUNASR_VAD_MODEL", "")
         punc_model = os.environ.get("ASR_FUNASR_PUNC_MODEL", "")
-        device = os.environ.get("ASR_FUNASR_DEVICE", "mps")
-        STATE["message"] = f"Loading FunASR model: {model_name}"
+        cache_dir = str(STATE["cache_dir"])
+        if cache_dir:
+            os.environ.setdefault("MODELSCOPE_CACHE", cache_dir)
+            os.environ.setdefault("HF_HOME", cache_dir)
+
+        requested_device = os.environ.get("ASR_FUNASR_DEVICE", "auto")
+        device, device_note = resolve_device(requested_device)
+        STATE["device"] = device
+        STATE["device_note"] = device_note
+        STATE["message"] = f"Loading FunASR model: {model_name} on {device}"
         model_kwargs = {
             "model": model_name,
             "device": device,
@@ -56,7 +92,8 @@ def load_model() -> None:
             model_kwargs["punc_model"] = punc_model
         STATE["model"] = AutoModel(**model_kwargs)
         STATE["status"] = "ready"
-        STATE["message"] = f"Local FunASR service is ready: {model_name}"
+        suffix = f" ({device_note})" if device_note else ""
+        STATE["message"] = f"Local FunASR service is ready: {model_name} on {device}{suffix}"
     except Exception as exc:  # pragma: no cover - surfaced to Electron
         STATE["status"] = "error"
         STATE["message"] = f"Failed to load FunASR: {exc}"
@@ -166,6 +203,10 @@ class Handler(BaseHTTPRequestHandler):
                 "status": STATE["status"],
                 "message": STATE["message"],
                 "model": STATE["model_name"],
+                "device": STATE["device"],
+                "device_note": STATE["device_note"],
+                "cache_dir": STATE["cache_dir"],
+                "python": sys.executable,
             }
         )
 

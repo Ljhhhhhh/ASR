@@ -1,0 +1,8 @@
+extends: electron-builder.yml
+extraResources:
+  - from: scripts
+    to: scripts
+  - from: .asr-runtime/current
+    to: asr-runtime
+  - from: requirements.txt
+    to: requirements.txt

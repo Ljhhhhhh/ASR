@@ -4,7 +4,7 @@ Local-first desktop tool for converting audio and video files into timestamped t
 
 The app uses `ffmpeg` to extract audio and prefers a local FunASR service managed by the Electron main process. Third-party ASR is used only when selected in the UI and configured with a service URL.
 
-## Requirements
+## Development Requirements
 
 - Node.js and pnpm
 - `ffmpeg` and `ffprobe`
@@ -21,6 +21,10 @@ pnpm install
 ```
 
 Python 3.12 is recommended for the local FunASR environment on macOS.
+
+Packaged local builds do not require the end user to install Python, FunASR, ffmpeg, or models.
+Those artifacts are generated into `.asr-runtime/current` by the local runtime build step and are
+bundled into the installer.
 
 ## Development
 
@@ -43,13 +47,19 @@ The service exposes:
 
 Local FunASR is the default provider. It is intended to stay running so the model loads once and can process multiple queue items.
 
-The default local model is:
+The development default local model is:
 
 ```text
 FunAudioLLM/Fun-ASR-Nano-2512
 ```
 
 It starts reliably from the local ModelScope cache and returns token-level timestamps that the app normalizes into transcript segment timestamps.
+
+Packaged local builds use the bundled runtime manifest at `resources/asr-runtime/manifest.json`.
+The supported packaged runtimes target macOS Apple Silicon by default and Windows x64. They bundle
+`paraformer-zh`, `fsmn-vad`, `ct-punc`, Python, ffmpeg, and ffprobe for offline use.
+Packaged runtimes default to CPU for compatibility; `ASR_FUNASR_DEVICE=mps` can be used for
+manual macOS acceleration experiments.
 
 Long files are chunked inside the local service before transcription. The default chunk size is 30 seconds, which keeps local FunASR stable on course and meeting recordings instead of sending a whole long recording to the model at once.
 
@@ -93,6 +103,43 @@ pnpm build:mac
 pnpm build:win
 pnpm build:linux
 ```
+
+Local offline macOS package, defaulting to Apple Silicon / M-series:
+
+```bash
+pnpm build:mac:local
+```
+
+Local offline Windows x64 package:
+
+```bash
+pnpm build:win:local
+```
+
+These commands prepare `.asr-runtime/current`, verify it by starting the local FunASR service, then
+build the platform package. The runtime is intentionally ignored by git because it contains Python
+dependencies, model files, and ffmpeg binaries.
+
+To prepare only the local runtime:
+
+```bash
+pnpm asr:runtime:prepare:mac
+pnpm asr:runtime:prepare:windows
+```
+
+To verify an existing local runtime without rebuilding it:
+
+```bash
+pnpm asr:runtime:verify
+```
+
+Offline release acceptance check:
+
+1. Run `pnpm build:mac:local` on a macOS Apple Silicon build machine, or `pnpm build:win:local` on a Windows x64 build machine, with network access.
+2. Install the generated package on a clean matching machine.
+3. Disconnect the machine from the network.
+4. Open the app and wait for the local FunASR service to become ready.
+5. Transcribe a small WAV or MP4 file and export SRT/TXT.
 
 ## Output
 

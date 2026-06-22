@@ -1,6 +1,7 @@
 import { mkdir, readFile, writeFile } from 'fs/promises'
 import { dirname, join } from 'path'
 import type { TranscriptFingerprint } from '../asr'
+import { getAsrDataDir } from '../asrDataDir'
 
 export interface KnowledgeSummaryRecord {
   jobId: string
@@ -11,10 +12,6 @@ export interface KnowledgeSummaryRecord {
   generatedAt: string
   courseType?: 'training' | 'interview' | 'lecture'
   chunkCount?: number
-}
-
-function getAsrDataDir(): string {
-  return join(process.cwd(), '.asr')
 }
 
 function getSummariesDir(): string {

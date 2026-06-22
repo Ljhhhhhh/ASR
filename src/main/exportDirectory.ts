@@ -1,7 +1,8 @@
 import { constants } from 'fs'
 import { access, mkdir, readFile, writeFile } from 'fs/promises'
-import { BrowserWindow, dialog } from 'electron'
+import { app, BrowserWindow, dialog } from 'electron'
 import { dirname, join } from 'path'
+import { getAsrDataDir } from './asrDataDir'
 
 const EXPORT_PREFS_VERSION = 1
 
@@ -12,10 +13,6 @@ interface ExportDirectoryPrefs {
 }
 
 let cachedDirectory: string | undefined
-
-function getAsrDataDir(): string {
-  return join(process.cwd(), '.asr')
-}
 
 function getExportDirectoryPrefsPath(): string {
   return join(getAsrDataDir(), 'export-directory.json')
@@ -68,7 +65,8 @@ export async function rememberExportPath(filePath: string): Promise<void> {
 
 export async function buildDefaultSavePath(fileName: string): Promise<string> {
   const lastDirectory = await loadLastExportDirectory()
-  return lastDirectory ? join(lastDirectory, fileName) : join(process.cwd(), fileName)
+  const fallbackDir = app.isPackaged ? app.getPath('documents') : process.cwd()
+  return lastDirectory ? join(lastDirectory, fileName) : join(fallbackDir, fileName)
 }
 
 export async function pickExportDirectory(

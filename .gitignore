@@ -8,3 +8,4 @@ out
 
 # Local ASR runtime data (transcripts, cache, LLM config with API keys)
 .asr/
+.asr-runtime/

@@ -1,13 +1,10 @@
 import { app, BrowserWindow, dialog, ipcMain } from 'electron'
-import {
-  buildDefaultSavePath,
-  pickExportDirectory,
-  rememberExportPath
-} from './exportDirectory'
+import { getAsrDataDir } from './asrDataDir'
+import { buildDefaultSavePath, pickExportDirectory, rememberExportPath } from './exportDirectory'
 import { spawn, type ChildProcessWithoutNullStreams } from 'child_process'
 import { randomUUID } from 'crypto'
-import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'fs/promises'
-import { basename, dirname, extname, join, resolve } from 'path'
+import { access, mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'fs/promises'
+import { basename, delimiter, dirname, extname, join, resolve } from 'path'
 import { tmpdir } from 'os'
 
 type AsrProvider = 'local-funasr' | 'third-party'
@@ -57,6 +54,32 @@ interface LocalServiceStatus {
   message?: string
 }
 
+interface LocalAsrRuntimeManifest {
+  version?: number
+  platform?: string
+  python?: string
+  ffmpeg?: string
+  ffprobe?: string
+  model?: string
+  vadModel?: string
+  puncModel?: string
+  device?: string
+}
+
+interface LocalAsrRuntime {
+  root: string
+  source: 'bundled' | 'development'
+  pythonBin: string
+  ffmpegBin: string
+  ffprobeBin: string
+  serviceScript: string
+  model?: string
+  vadModel?: string
+  puncModel?: string
+  device: string
+  cacheDir: string
+}
+
 interface CachedTranscript {
   cacheKey: string
   filePath: string
@@ -70,9 +93,15 @@ interface CachedTranscript {
 
 const LOCAL_SERVICE_URL = process.env['ASR_LOCAL_FUNASR_URL'] || 'http://127.0.0.1:17698'
 const APP_ROOT = app.isPackaged ? process.resourcesPath : process.cwd()
-const PYTHON_BIN = process.env['ASR_FUNASR_PYTHON'] || resolve(APP_ROOT, '.venv/bin/python')
 const SERVICE_SCRIPT = resolve(APP_ROOT, 'scripts/funasr_service.py')
-const SERVICE_PID_PATH = join(process.cwd(), '.asr', 'funasr-service.pid')
+const SERVICE_PID_PATH = join(getAsrDataDir(), 'funasr-service.pid')
+const BUNDLED_RUNTIME_ROOT = resolve(APP_ROOT, 'asr-runtime')
+const DEVELOPMENT_RUNTIME_ROOT = resolve(process.cwd(), '.asr-runtime/current')
+const DEVELOPMENT_PYTHON_BIN =
+  process.platform === 'win32'
+    ? resolve(process.cwd(), '.venv/Scripts/python.exe')
+    : resolve(process.cwd(), '.venv/bin/python')
+const LOCAL_RUNTIME_CACHE_DIR = resolve(app.getPath('userData'), 'asr-runtime-cache')
 
 const JOB_HISTORY_VERSION = 1
 const MAX_JOB_HISTORY = 100
@@ -88,6 +117,7 @@ let cancelRequested = false
 let serviceProcess: ChildProcessWithoutNullStreams | undefined
 let serviceState: ServiceState = 'unknown'
 let serviceMessage = ''
+let localAsrRuntime: LocalAsrRuntime | undefined
 
 export function getJobById(jobId: string): TranscriptionJob | undefined {
   return jobs.get(jobId)
@@ -288,8 +318,7 @@ export function registerAsrHandlers(mainWindow: BrowserWindow): void {
 
       const selectedIds = new Set(jobIds)
       const exportableJobs = Array.from(jobs.values()).filter(
-        (job) =>
-          selectedIds.has(job.id) && job.status === 'completed' && job.segments.length > 0
+        (job) => selectedIds.has(job.id) && job.status === 'completed' && job.segments.length > 0
       )
       if (exportableJobs.length === 0) {
         throw new Error('所选任务中没有可导出的已完成文字稿')
@@ -343,6 +372,99 @@ function getServiceStatus(): LocalServiceStatus {
     state: serviceState,
     url: LOCAL_SERVICE_URL,
     message: serviceMessage || undefined
+  }
+}
+
+async function getLocalAsrRuntime(): Promise<LocalAsrRuntime> {
+  if (localAsrRuntime) return localAsrRuntime
+
+  const runtimeRoot = app.isPackaged ? BUNDLED_RUNTIME_ROOT : DEVELOPMENT_RUNTIME_ROOT
+  const manifest = await readRuntimeManifest(runtimeRoot)
+  const source = app.isPackaged || manifest ? 'bundled' : 'development'
+  const root = manifest ? runtimeRoot : process.cwd()
+  const runtime: LocalAsrRuntime = {
+    root,
+    source,
+    pythonBin:
+      process.env['ASR_FUNASR_PYTHON'] ||
+      resolveRuntimePath(root, manifest?.python) ||
+      DEVELOPMENT_PYTHON_BIN,
+    ffmpegBin:
+      process.env['ASR_FFMPEG_BIN'] || resolveRuntimePath(root, manifest?.ffmpeg) || 'ffmpeg',
+    ffprobeBin:
+      process.env['ASR_FFPROBE_BIN'] || resolveRuntimePath(root, manifest?.ffprobe) || 'ffprobe',
+    serviceScript: SERVICE_SCRIPT,
+    model: process.env['ASR_FUNASR_MODEL'] || resolveRuntimePath(root, manifest?.model),
+    vadModel: process.env['ASR_FUNASR_VAD_MODEL'] || resolveRuntimePath(root, manifest?.vadModel),
+    puncModel:
+      process.env['ASR_FUNASR_PUNC_MODEL'] || resolveRuntimePath(root, manifest?.puncModel),
+    device: process.env['ASR_FUNASR_DEVICE'] || manifest?.device || 'auto',
+    cacheDir: process.env['ASR_FUNASR_CACHE_DIR'] || LOCAL_RUNTIME_CACHE_DIR
+  }
+
+  await validateLocalAsrRuntime(runtime, Boolean(manifest))
+  localAsrRuntime = runtime
+  return runtime
+}
+
+async function readRuntimeManifest(
+  runtimeRoot: string
+): Promise<LocalAsrRuntimeManifest | undefined> {
+  const manifestPath = resolve(runtimeRoot, 'manifest.json')
+  try {
+    const raw = await readFile(manifestPath, 'utf8')
+    return JSON.parse(raw) as LocalAsrRuntimeManifest
+  } catch (error) {
+    if (!app.isPackaged) return undefined
+    const message = error instanceof Error ? error.message : String(error)
+    throw new Error(`未找到内置 ASR runtime manifest：${manifestPath}（${message}）`)
+  }
+}
+
+function resolveRuntimePath(root: string, value: string | undefined): string | undefined {
+  if (!value) return undefined
+  return resolve(root, value)
+}
+
+async function validateLocalAsrRuntime(
+  runtime: LocalAsrRuntime,
+  hasManifest: boolean
+): Promise<void> {
+  await assertExecutable(runtime.pythonBin, '未找到本地 Python 运行时')
+  await assertReadableFile(runtime.serviceScript, '未找到本地 FunASR 服务脚本')
+  if (hasManifest || runtime.ffmpegBin.includes('/') || runtime.ffmpegBin.includes('\\')) {
+    await assertExecutable(runtime.ffmpegBin, '未找到内置 ffmpeg')
+  }
+  if (hasManifest || runtime.ffprobeBin.includes('/') || runtime.ffprobeBin.includes('\\')) {
+    await assertExecutable(runtime.ffprobeBin, '未找到内置 ffprobe')
+  }
+  if (runtime.model) await assertReadablePath(runtime.model, '未找到本地 FunASR 模型')
+  if (runtime.vadModel) await assertReadablePath(runtime.vadModel, '未找到本地 VAD 模型')
+  if (runtime.puncModel) await assertReadablePath(runtime.puncModel, '未找到本地标点模型')
+}
+
+async function assertExecutable(path: string, label: string): Promise<void> {
+  try {
+    await access(path)
+  } catch {
+    throw new Error(`${label}：${path}`)
+  }
+}
+
+async function assertReadableFile(path: string, label: string): Promise<void> {
+  try {
+    const fileStat = await stat(path)
+    if (!fileStat.isFile()) throw new Error('not a file')
+  } catch {
+    throw new Error(`${label}：${path}`)
+  }
+}
+
+async function assertReadablePath(path: string, label: string): Promise<void> {
+  try {
+    await access(path)
+  } catch {
+    throw new Error(`${label}：${path}`)
   }
 }
 
@@ -591,10 +713,6 @@ function getCacheKey(filePath: string, fileName: string): string {
   return `${resolve(filePath)}::${fileName}`
 }
 
-function getAsrDataDir(): string {
-  return join(process.cwd(), '.asr')
-}
-
 function getTranscriptCachePath(): string {
   return join(getAsrDataDir(), 'transcript-cache.json')
 }
@@ -764,7 +882,8 @@ async function persistJobHistory(): Promise<void> {
 }
 
 async function probeDuration(filePath: string): Promise<number> {
-  const output = await runProcess('ffprobe', [
+  const runtime = await getLocalAsrRuntime()
+  const output = await runProcess(runtime.ffprobeBin, [
     '-v',
     'error',
     '-show_entries',
@@ -783,9 +902,10 @@ async function extractWav(
   durationMs: number | undefined,
   onProgress: (progress: number) => void
 ): Promise<void> {
+  const runtime = await getLocalAsrRuntime()
   await mkdir(dirname(outputPath), { recursive: true })
   await runProcess(
-    'ffmpeg',
+    runtime.ffmpegBin,
     ['-y', '-i', inputPath, '-vn', '-ac', '1', '-ar', '16000', '-f', 'wav', outputPath],
     (chunk) => {
       if (!durationMs) return
@@ -837,9 +957,7 @@ async function readAsrResponsePayload(response: Response, providerLabel: string)
   const detail = readResponseDetail(body)
 
   if (!response.ok) {
-    throw new Error(
-      `${providerLabel} 解析失败（${response.status}）${detail ? `：${detail}` : ''}`
-    )
+    throw new Error(`${providerLabel} 解析失败（${response.status}）${detail ? `：${detail}` : ''}`)
   }
 
   if (!body.trim()) {
@@ -903,14 +1021,15 @@ async function ensureLocalService(emitService: () => void): Promise<void> {
   emitService()
 
   if (!serviceProcess) {
+    const runtime = await getLocalAsrRuntime()
+    await mkdir(runtime.cacheDir, { recursive: true })
     await stopStaleLocalService()
-    const spawnedService = spawn(PYTHON_BIN, [
-      SERVICE_SCRIPT,
-      '--host',
-      '127.0.0.1',
-      '--port',
-      '17698'
-    ])
+    const env = buildLocalServiceEnv(runtime)
+    const spawnedService = spawn(
+      runtime.pythonBin,
+      [SERVICE_SCRIPT, '--host', '127.0.0.1', '--port', '17698'],
+      { env }
+    )
     serviceProcess = spawnedService
     if (spawnedService.pid) void writeLocalServicePid(spawnedService.pid)
     spawnedService.on('error', (error) => {
@@ -953,6 +1072,24 @@ async function ensureLocalService(emitService: () => void): Promise<void> {
   serviceMessage = 'Local FunASR service did not become ready within 120 seconds'
   emitService()
   throw new Error(serviceMessage)
+}
+
+function buildLocalServiceEnv(runtime: LocalAsrRuntime): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = {
+    ...process.env,
+    ASR_FUNASR_DEVICE: runtime.device,
+    ASR_FUNASR_CACHE_DIR: runtime.cacheDir,
+    MODELSCOPE_CACHE: runtime.cacheDir,
+    HF_HOME: runtime.cacheDir,
+    PYTHONNOUSERSITE: '1'
+  }
+  if (runtime.model) env['ASR_FUNASR_MODEL'] = runtime.model
+  if (runtime.vadModel) env['ASR_FUNASR_VAD_MODEL'] = runtime.vadModel
+  if (runtime.puncModel) env['ASR_FUNASR_PUNC_MODEL'] = runtime.puncModel
+  if (runtime.ffmpegBin.includes('/') || runtime.ffmpegBin.includes('\\')) {
+    env['PATH'] = [dirname(runtime.ffmpegBin), process.env['PATH']].filter(Boolean).join(delimiter)
+  }
+  return env
 }
 
 async function startLocalServiceOnLaunch(emitService: () => void): Promise<void> {
