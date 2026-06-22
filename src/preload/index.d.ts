@@ -10,6 +10,16 @@ declare global {
     canceled?: boolean
   }
 
+  interface SelectExportDirectoryResult {
+    canceled?: boolean
+    directory?: string
+  }
+
+  interface SummaryImageFilePayload {
+    fileName: string
+    data: Uint8Array
+  }
+
   interface AsrConfig {
     provider: AsrProvider
     thirdPartyBaseUrl?: string
@@ -142,6 +152,7 @@ declare global {
     restartLocalService: () => Promise<LocalServiceStatus>
     getLocalServiceStatus: () => Promise<LocalServiceStatus>
     getJobs: () => Promise<TranscriptionJob[]>
+    selectExportDirectory: () => Promise<SelectExportDirectoryResult>
     exportTranscript: (jobId: string, format: ExportFormat) => Promise<void>
     exportTranscriptsBatch: (jobIds: string[], format?: ExportFormat) => Promise<BatchExportResult>
     onJobsUpdated: (callback: (jobs: TranscriptionJob[]) => void) => () => void
@@ -158,6 +169,10 @@ declare global {
     cancelSummary: (jobId: string) => Promise<boolean>
     exportSummary: (jobId: string) => Promise<void>
     exportSummariesBatch: (jobIds: string[]) => Promise<BatchExportResult>
+    writeSummaryImageFiles: (
+      directory: string,
+      files: SummaryImageFilePayload[]
+    ) => Promise<BatchExportResult>
     saveSummaryImageFromClipboard: (jobId: string) => Promise<void>
     onSummaryChunk: (callback: (event: SummaryProgressEvent) => void) => () => void
     onSummaryDone: (callback: (event: SummaryDoneEvent) => void) => () => void

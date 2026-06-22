@@ -10,6 +10,16 @@ interface BatchExportResult {
   canceled?: boolean
 }
 
+interface SelectExportDirectoryResult {
+  canceled?: boolean
+  directory?: string
+}
+
+interface SummaryImageFilePayload {
+  fileName: string
+  data: Uint8Array
+}
+
 interface AsrConfig {
   provider: AsrProvider
   thirdPartyBaseUrl?: string
@@ -145,6 +155,8 @@ const api = {
     restartLocalService: () => ipcRenderer.invoke('asr:restart-local-service'),
     getLocalServiceStatus: () => ipcRenderer.invoke('asr:get-local-service-status'),
     getJobs: () => ipcRenderer.invoke('asr:get-jobs') as Promise<TranscriptionJob[]>,
+    selectExportDirectory: () =>
+      ipcRenderer.invoke('asr:select-export-directory') as Promise<SelectExportDirectoryResult>,
     exportTranscript: (jobId: string, format: ExportFormat) =>
       ipcRenderer.invoke('asr:export-transcript', jobId, format),
     exportTranscriptsBatch: (jobIds: string[], format: ExportFormat = 'txt') =>
@@ -180,6 +192,11 @@ const api = {
       ipcRenderer.invoke('llm:export-summary', jobId),
     exportSummariesBatch: (jobIds: string[]): Promise<BatchExportResult> =>
       ipcRenderer.invoke('llm:export-summaries-batch', jobIds),
+    writeSummaryImageFiles: (
+      directory: string,
+      files: SummaryImageFilePayload[]
+    ): Promise<BatchExportResult> =>
+      ipcRenderer.invoke('llm:write-summary-image-files', directory, files),
     saveSummaryImageFromClipboard: (jobId: string): Promise<void> =>
       ipcRenderer.invoke('llm:save-summary-image-from-clipboard', jobId),
     onSummaryChunk: (callback: (event: SummaryProgressEvent) => void): (() => void) => {

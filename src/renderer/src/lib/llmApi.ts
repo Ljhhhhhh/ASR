@@ -21,6 +21,11 @@ export const llmApi = {
   exportSummary: (jobId: string): Promise<void> => invokeLlm('llm:export-summary', jobId),
   exportSummariesBatch: (jobIds: string[]): Promise<BatchExportResult> =>
     invokeLlm('llm:export-summaries-batch', jobIds),
+  writeSummaryImageFiles: (
+    directory: string,
+    files: SummaryImageFilePayload[]
+  ): Promise<BatchExportResult> =>
+    invokeLlm('llm:write-summary-image-files', directory, files),
   saveSummaryImageFromClipboard: (jobId: string): Promise<void> =>
     invokeLlm('llm:save-summary-image-from-clipboard', jobId),
   onSummaryChunk: (callback: (event: SummaryProgressEvent) => void): (() => void) =>

@@ -7,6 +7,7 @@ import { TranscriptSegmentList } from './components/TranscriptSegmentList'
 import { useKnowledgeSummary, type SummaryStatus } from './hooks/useKnowledgeSummary'
 import { llmApi } from './lib/llmApi'
 import { getLlmProviderPreset, detectLlmProviderId } from './lib/llmProviders'
+import { exportSummaryImagesBatch } from './lib/summaryImageExport'
 import { formatClockTime, formatDuration } from './lib/transcript'
 
 const stageLabels: Record<NonNullable<TranscriptionJob['stage']>, string> = {
@@ -98,6 +99,7 @@ function App(): React.JSX.Element {
   const [llmStatus, setLlmStatus] = useState<LlmConfigPublic | null>(null)
   const [transcriptTab, setTranscriptTab] = useState<'transcript' | 'summary'>('transcript')
   const [appView, setAppView] = useState<'workbench' | 'reader'>('workbench')
+  const [exportingSummaryImages, setExportingSummaryImages] = useState(false)
 
   useEffect(() => {
     const applyJobs = (nextJobs: TranscriptionJob[]): void => {
@@ -320,6 +322,32 @@ function App(): React.JSX.Element {
     }
   }
 
+  const exportSummaryImagesBatchAction = async (): Promise<void> => {
+    if (selectedExportJobIds.length === 0) {
+      window.alert('请先勾选要导出的任务')
+      return
+    }
+
+    const selectedJobs = jobs.filter(
+      (job) =>
+        exportSelectedJobIds.has(job.id) && hasExportableSummary(summaryStatuses[job.id])
+    )
+    if (selectedJobs.length === 0) return
+
+    setExportingSummaryImages(true)
+    try {
+      const result = await exportSummaryImagesBatch(
+        selectedJobs.map((job) => ({ id: job.id, fileName: job.fileName }))
+      )
+      const message = buildBatchExportMessage(result, '知识总结图片')
+      if (message) window.alert(message)
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : '批量导出知识总结图片失败')
+    } finally {
+      setExportingSummaryImages(false)
+    }
+  }
+
   const deleteJob = async (event: MouseEvent<HTMLButtonElement>, jobId: string): Promise<void> => {
     event.stopPropagation()
     const job = jobs.find((candidate) => candidate.id === jobId)
@@ -503,56 +531,73 @@ function App(): React.JSX.Element {
       <section className="workspace">
         <aside className="queue-panel" aria-label="Processing queue">
           <div className="panel-title">
-            <div>
-              <h2>处理队列</h2>
-              <span>按添加顺序逐个转写</span>
-            </div>
-            <div className="panel-title-actions">
-              {jobs.length > 0 ? (
-                <div className="queue-export-actions">
-                  <button
-                    type="button"
-                    className="ghost-button compact-button"
-                    onClick={toggleSelectAllForExport}
-                  >
-                    {allJobsSelectedForExport ? '取消全选' : '全选'}
-                  </button>
-                  <button
-                    type="button"
-                    className="ghost-button compact-button"
-                    disabled={selectedExportableTranscriptJobs === 0}
-                    title={
-                      exportSelectedJobIds.size === 0
-                        ? '请先勾选要导出的任务'
-                        : selectedExportableTranscriptJobs === 0
-                          ? '所选任务中没有可导出的文字稿'
-                          : `导出已选 ${selectedExportableTranscriptJobs} 个 TXT 文字稿`
-                    }
-                    onClick={() => void exportTranscriptsBatch()}
-                  >
-                    导出文字稿
-                  </button>
-                  <button
-                    type="button"
-                    className="ghost-button compact-button"
-                    disabled={selectedExportableSummaryJobs === 0}
-                    title={
-                      exportSelectedJobIds.size === 0
-                        ? '请先勾选要导出的任务'
-                        : selectedExportableSummaryJobs === 0
-                          ? '所选任务中没有可导出的知识总结'
-                          : `导出已选 ${selectedExportableSummaryJobs} 个 Markdown 总结`
-                    }
-                    onClick={() => void exportSummariesBatch()}
-                  >
-                    导出总结
-                  </button>
-                </div>
-              ) : null}
+            <div className="panel-title-main">
+              <div className="panel-title-copy">
+                <h2>处理队列</h2>
+                <span>按添加顺序逐个转写</span>
+              </div>
               <span className="panel-title-count">
                 {completedJobs}/{jobs.length} 完成
               </span>
             </div>
+            {jobs.length > 0 ? (
+              <div className="queue-export-toolbar">
+                <button
+                  type="button"
+                  className="ghost-button compact-button"
+                  onClick={toggleSelectAllForExport}
+                >
+                  {allJobsSelectedForExport ? '取消全选' : '全选'}
+                </button>
+                <button
+                  type="button"
+                  className="ghost-button compact-button"
+                  disabled={selectedExportableTranscriptJobs === 0}
+                  title={
+                    exportSelectedJobIds.size === 0
+                      ? '请先勾选要导出的任务'
+                      : selectedExportableTranscriptJobs === 0
+                        ? '所选任务中没有可导出的文字稿'
+                        : `导出已选 ${selectedExportableTranscriptJobs} 个 TXT 文字稿`
+                  }
+                  onClick={() => void exportTranscriptsBatch()}
+                >
+                  导出文字稿
+                </button>
+                <button
+                  type="button"
+                  className="ghost-button compact-button"
+                  disabled={selectedExportableSummaryJobs === 0}
+                  title={
+                    exportSelectedJobIds.size === 0
+                      ? '请先勾选要导出的任务'
+                      : selectedExportableSummaryJobs === 0
+                        ? '所选任务中没有可导出的知识总结'
+                        : `导出已选 ${selectedExportableSummaryJobs} 个 Markdown 总结`
+                  }
+                  onClick={() => void exportSummariesBatch()}
+                >
+                  导出总结
+                </button>
+                <button
+                  type="button"
+                  className="ghost-button compact-button"
+                  disabled={selectedExportableSummaryJobs === 0 || exportingSummaryImages}
+                  title={
+                    exportingSummaryImages
+                      ? '正在生成知识总结图片…'
+                      : exportSelectedJobIds.size === 0
+                        ? '请先勾选要导出的任务'
+                        : selectedExportableSummaryJobs === 0
+                          ? '所选任务中没有可导出的知识总结'
+                          : `导出已选 ${selectedExportableSummaryJobs} 个 PNG 图片`
+                  }
+                  onClick={() => void exportSummaryImagesBatchAction()}
+                >
+                  {exportingSummaryImages ? '导出中…' : '导出图片'}
+                </button>
+              </div>
+            ) : null}
           </div>
 
           {jobs.length === 0 ? (

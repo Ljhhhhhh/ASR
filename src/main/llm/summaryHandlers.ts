@@ -8,6 +8,12 @@ import {
   resolveUniqueFileName,
   type BatchExportResult
 } from '../asr'
+import {
+  buildDefaultSavePath,
+  pickExportDirectory,
+  rememberExportDirectory,
+  rememberExportPath
+} from '../exportDirectory'
 import { loadLlmConfig } from '../llm'
 import { runKnowledgeSummaryChain } from './chains/knowledgeSummary'
 import { normalizeCourseType, type CourseType } from './prompts/courseTemplates'
@@ -143,15 +149,10 @@ export function registerSummaryHandlers(mainWindow: BrowserWindow): void {
         throw new Error('所选任务中没有可导出的知识总结')
       }
 
-    const result = await dialog.showOpenDialog(mainWindow, {
-      title: '选择导出目录',
-      properties: ['openDirectory', 'createDirectory']
-    })
-    if (result.canceled || result.filePaths.length === 0) {
+    const directory = await pickExportDirectory(mainWindow)
+    if (!directory) {
       return { exported: 0, skipped: 0, canceled: true }
     }
-
-    const directory = result.filePaths[0]
     const usedNames = new Set<string>()
     let exported = 0
     let skipped = 0
@@ -175,8 +176,7 @@ export function registerSummaryHandlers(mainWindow: BrowserWindow): void {
     const record = await loadKnowledgeSummary(jobId)
     if (!record) throw new Error('没有可导出的知识总结')
 
-    const defaultPath = join(
-      process.cwd(),
+    const defaultPath = await buildDefaultSavePath(
       `${basename(record.fileName, extname(record.fileName))}-知识总结.md`
     )
     const result = await dialog.showSaveDialog(mainWindow, {
@@ -186,7 +186,39 @@ export function registerSummaryHandlers(mainWindow: BrowserWindow): void {
 
     if (result.canceled || !result.filePath) return
     await writeFile(result.filePath, record.markdown, 'utf8')
+    await rememberExportPath(result.filePath)
   })
+
+  ipcMain.handle(
+    'llm:write-summary-image-files',
+    async (
+      _event,
+      directory: string,
+      files: Array<{ fileName: string; data: Uint8Array }>
+    ): Promise<BatchExportResult> => {
+      if (!directory?.trim()) throw new Error('导出目录无效')
+      if (!Array.isArray(files) || files.length === 0) {
+        throw new Error('没有可写入的知识总结图片')
+      }
+
+      const usedNames = new Set<string>()
+      let exported = 0
+      let skipped = 0
+
+      for (const file of files) {
+        const fileName = resolveUniqueFileName(usedNames, file.fileName)
+        try {
+          await writeFile(join(directory, fileName), Buffer.from(file.data))
+          exported += 1
+        } catch {
+          skipped += 1
+        }
+      }
+
+      await rememberExportDirectory(directory)
+      return { exported, skipped }
+    }
+  )
 
   ipcMain.handle('llm:save-summary-image-from-clipboard', async (_event, jobId: string) => {
     const record = await loadKnowledgeSummary(jobId)
@@ -195,8 +227,7 @@ export function registerSummaryHandlers(mainWindow: BrowserWindow): void {
     const image = clipboard.readImage()
     if (image.isEmpty()) throw new Error('没有可保存的知识总结图片')
 
-    const defaultPath = join(
-      process.cwd(),
+    const defaultPath = await buildDefaultSavePath(
       `${basename(record.fileName, extname(record.fileName))}-知识总结.png`
     )
     const result = await dialog.showSaveDialog(mainWindow, {
@@ -206,5 +237,6 @@ export function registerSummaryHandlers(mainWindow: BrowserWindow): void {
 
     if (result.canceled || !result.filePath) return
     await writeFile(result.filePath, image.toPNG())
+    await rememberExportPath(result.filePath)
   })
 }

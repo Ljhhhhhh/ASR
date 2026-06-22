@@ -1,4 +1,9 @@
 import { app, BrowserWindow, dialog, ipcMain } from 'electron'
+import {
+  buildDefaultSavePath,
+  pickExportDirectory,
+  rememberExportPath
+} from './exportDirectory'
 import { spawn, type ChildProcessWithoutNullStreams } from 'child_process'
 import { randomUUID } from 'crypto'
 import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'fs/promises'
@@ -96,6 +101,11 @@ export interface BatchExportResult {
   exported: number
   skipped: number
   canceled?: boolean
+}
+
+export interface SelectExportDirectoryResult {
+  canceled?: boolean
+  directory?: string
 }
 
 export async function getTranscriptFingerprint(
@@ -239,6 +249,12 @@ export function registerAsrHandlers(mainWindow: BrowserWindow): void {
     return getServiceStatus()
   })
 
+  ipcMain.handle('asr:select-export-directory', async (): Promise<SelectExportDirectoryResult> => {
+    const directory = await pickExportDirectory(mainWindow)
+    if (!directory) return { canceled: true }
+    return { directory }
+  })
+
   ipcMain.handle('asr:get-jobs', async () => {
     await loadTranscriptCache()
     await loadJobHistory()
@@ -249,8 +265,7 @@ export function registerAsrHandlers(mainWindow: BrowserWindow): void {
     const job = jobs.get(jobId)
     if (!job || job.status !== 'completed') throw new Error('No completed transcript is available')
 
-    const defaultPath = join(
-      process.cwd(),
+    const defaultPath = await buildDefaultSavePath(
       `${basename(job.fileName, extname(job.fileName))}.${format}`
     )
     const result = await dialog.showSaveDialog(mainWindow, {
@@ -261,6 +276,7 @@ export function registerAsrHandlers(mainWindow: BrowserWindow): void {
     if (result.canceled || !result.filePath) return
     const content = format === 'txt' ? formatTxt(job.segments) : formatSrt(job.segments)
     await writeFile(result.filePath, content, 'utf8')
+    await rememberExportPath(result.filePath)
   })
 
   ipcMain.handle(
@@ -279,15 +295,10 @@ export function registerAsrHandlers(mainWindow: BrowserWindow): void {
         throw new Error('所选任务中没有可导出的已完成文字稿')
       }
 
-      const result = await dialog.showOpenDialog(mainWindow, {
-        title: '选择导出目录',
-        properties: ['openDirectory', 'createDirectory']
-      })
-      if (result.canceled || result.filePaths.length === 0) {
+      const directory = await pickExportDirectory(mainWindow)
+      if (!directory) {
         return { exported: 0, skipped: 0, canceled: true }
       }
-
-      const directory = result.filePaths[0]
       const usedNames = new Set<string>()
       let exported = 0
       let skipped = 0

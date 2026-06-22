@@ -440,16 +440,21 @@ h2 {
 }
 
 .panel-title {
+  display: grid;
+  gap: 10px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--asr-line);
+}
+
+.panel-title-main {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  min-height: 64px;
-  padding: 14px 16px;
-  border-bottom: 1px solid var(--asr-line);
+  min-width: 0;
 }
 
-.panel-title > div:first-child {
+.panel-title-copy {
   min-width: 0;
 }
 
@@ -459,28 +464,30 @@ h2 {
   white-space: nowrap;
 }
 
-.panel-title span {
+.panel-title-copy span {
+  display: block;
+  overflow: hidden;
   color: var(--asr-muted);
   font-size: 12px;
   font-weight: 500;
   line-height: 1.5;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.panel-title-actions {
+.queue-export-toolbar {
   display: flex;
   align-items: center;
-  justify-content: flex-end;
-  gap: 10px;
-  flex-shrink: 0;
-}
-
-.queue-export-actions {
-  display: flex;
-  align-items: center;
+  flex-wrap: wrap;
   gap: 6px;
 }
 
 .panel-title-count {
+  flex: none;
+  color: var(--asr-muted);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.5;
   white-space: nowrap;
 }
 
@@ -1999,11 +2006,19 @@ body.llm-settings-open {
     flex-wrap: wrap;
   }
 
-  .panel-title,
   .segment-row,
   .job-detail-header,
   .log-row {
     grid-template-columns: 1fr;
+  }
+
+  .queue-export-toolbar {
+    gap: 8px;
+  }
+
+  .queue-export-toolbar .compact-button {
+    flex: 1 1 calc(50% - 4px);
+    min-width: 0;
   }
 
   .job-reader-header,
