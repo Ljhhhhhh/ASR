@@ -24,7 +24,7 @@
     "build:win": "npm run build && electron-builder --win",
     "build:mac": "electron-vite build && electron-builder --mac",
     "build:mac:local": "npm run asr:runtime:prepare:mac && npm run asr:runtime:verify && electron-vite build && electron-builder --mac --arm64 --config electron-builder.local.yml",
-    "build:win:local": "npm run asr:runtime:prepare:windows && npm run asr:runtime:verify && electron-vite build && electron-builder --win --x64 --config electron-builder.local.yml",
+    "build:win:local": "npm run asr:runtime:prepare:windows && npm run asr:runtime:verify && electron-vite build && electron-builder --win --x64 --dir --config electron-builder.local.yml",
     "build:linux": "electron-vite build && electron-builder --linux"
   },
   "dependencies": {
@@ -53,7 +53,7 @@
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^5.1.1",
     "electron": "^39.2.6",
-    "electron-builder": "^26.0.12",
+    "electron-builder": "^26.15.3",
     "electron-vite": "^5.0.0",
     "eslint": "^9.39.1",
     "eslint-plugin-react": "^7.37.5",
@@ -66,6 +66,9 @@
     "vite": "^7.2.6"
   },
   "pnpm": {
+    "overrides": {
+      "@noble/hashes": "1.8.0"
+    },
     "onlyBuiltDependencies": [
       "electron",
       "esbuild"
